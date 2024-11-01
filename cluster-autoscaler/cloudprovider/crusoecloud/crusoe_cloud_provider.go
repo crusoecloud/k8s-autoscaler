@@ -22,7 +22,7 @@ import (
 	"io"
 	"os"
 
-	crusoego "github.com/crusoecloud/client-go/swagger/v1alpha5"
+	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -50,25 +50,30 @@ var (
 
 type crusoeCloudProvider struct {
 	// client talks to Crusoecloud API
-	client *crusoego.APIClient
-	// ClusterID is the CMK cluster id where the Autoscaler is running.
-	clusterID string
+	client *crusoeapi.APIClient
+	// Region is the cloud region where the CMK cluster is located.
+	region string
 	// ProjectID is the project id containing the CMK cluster.
 	projectID string
+	// ClusterID is the CMK cluster id where the Autoscaler is running.
+	clusterID string
 	// nodeGroups is an abstraction around the NodePool object returned by the API.
 	nodeGroups []*NodeGroup
 }
 
 type crusoeCloudConfig struct {
-	*crusoego.Configuration
-	// ClusterID is the CMK cluster id where the Autoscaler is running.
-	ClusterID string `json:"cluster_id"`
-	// ProjectID is the project id containing the CMK cluster.
-	ProjectID string `json:"project_id"`
-	// APIKey is an API access key
-	APIKey string `json:"api_key"`
+	// APIEndpoint is the HTTP API URL
+	APIEndpoint string `json:"api_endpoint"`
+	// AccessKey is an API access key
+	AccessKey string `json:"access_key"`
+	// SecretKey is an API secret key
+	SecretKey string `json:"secret_key"`
 	// Region is the cloud region
 	Region string `json:"region"`
+	// ProjectID is the project id containing the CMK cluster.
+	ProjectID string `json:"project_id"`
+	// ClusterID is the CMK cluster id where the Autoscaler is running.
+	ClusterID string `json:"cluster_id"`
 }
 
 func readConf(config *crusoeCloudConfig, configFile io.Reader) error {
@@ -90,9 +95,7 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 	}
 
 	// Config file passed with `cloud-config` flag
-	cfg := crusoeCloudConfig{
-		Configuration: crusoego.NewConfiguration(),
-	}
+	cfg := crusoeCloudConfig{}
 	if configFile != nil {
 		err := readConf(&cfg, configFile)
 		if err != nil {
@@ -101,19 +104,19 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 	}
 
 	// env takes precedence over config passed by command-line
-	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
-	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
-	cfg.APIKey = getenvOr("CLUSTER_ID", cfg.ClusterID)
+	cfg.APIEndpoint = getenvOr("CRUSOE_API_URL", cfg.APIEndpoint)
+	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
+	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
 	cfg.Region = getenvOr("CRUSOE_REGION", cfg.Region)
-	cfg.BasePath = getenvOr("CRUSOE_API_URL", cfg.BasePath)
+	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
+	cfg.ClusterID = getenvOr("CLUSTER_ID", cfg.ClusterID)
 
-	cfg.UserAgent = defaultUserAgent
-	client := crusoego.NewAPIClient(cfg.Configuration)
-
-	klog.V(4).Infof("Crusoe Cloud Provider built; ClusterId=%s,APIKey=%s-***,Region=%s,ApiURL=%s", cfg.ClusterID, cfg.APIKey[:8], cfg.Region, cfg.BasePath)
+	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, defaultUserAgent)
+	klog.V(4).Infof("Crusoe Cloud Provider built; ClusterId=%s,APIKey=%s-***,Region=%s,ApiURL=%s", cfg.ClusterID, cfg.AccessKey[:8], cfg.Region, cfg.APIEndpoint)
 
 	return &crusoeCloudProvider{
 		client:    client,
+		region:    cfg.Region,
 		projectID: cfg.ProjectID,
 		clusterID: cfg.ClusterID,
 	}
