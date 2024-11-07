@@ -26,8 +26,8 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
+	"k8s.io/autoscaler/cluster-autoscaler/simulator/framework"
 	"k8s.io/klog/v2"
-	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 const (
@@ -201,13 +201,13 @@ func (ng *NodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 	return nil, cloudprovider.ErrNotImplemented
 }
 
-// TemplateNodeInfo returns a schedulerframework.NodeInfo structure of an empty
+// TemplateNodeInfo returns a framework.NodeInfo structure of an empty
 // (as if just started) node. This will be used in scale-up simulations to
 // predict what would a new node look like if a node group was expanded. The returned
 // NodeInfo is expected to have a fully populated Node object, with all of the labels,
 // capacity and allocatable information as well as all pods that are started on
 // the node by default, using manifest (most likely only kube-proxy).
-func (ng *NodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
+func (ng *NodeGroup) TemplateNodeInfo() (*framework.NodeInfo, error) {
 	klog.V(4).Infof("TemplateNodeInfo,PoolID=%s", ng.pool.Id)
 	return nil, cloudprovider.ErrNotImplemented
 }

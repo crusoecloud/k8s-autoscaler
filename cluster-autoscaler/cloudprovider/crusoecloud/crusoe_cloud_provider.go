@@ -39,12 +39,17 @@ const (
 )
 
 var (
+	// derived from `crusoe compute vms types | tail +3 | cut -f1 -d. | grep -v "^[cs]1" | sort | uniq`
 	availableGPUTypes = map[string]struct{}{
-		"nvidia-tesla-a40":  {},
-		"nvidia-tesla-a100": {},
-		"nvidia-tesla-h100": {},
-		// "nvidia-tesla-h200": {},
-		"nvidia-tesla-l40s": {},
+		"nvidia-a40":              {},
+		"nvidia-a100":             {},
+		"nvidia-a100-80gb":        {},
+		"nvidia-a100-80gb-sxm":    {},
+		"nvidia-a100-80gb-sxm-ib": {},
+		"nvidia-h100-80gb-sxm":    {},
+		"nvidia-h100-80gb-sxm-ib": {},
+		// "nvidia-h200": {},
+		"nvidia-l40s-48gb": {},
 	}
 )
 
@@ -59,6 +64,8 @@ type crusoeCloudProvider struct {
 	clusterID string
 	// nodeGroups is an abstraction around the NodePool object returned by the API.
 	nodeGroups []*NodeGroup
+
+	resourceLimiter *cloudprovider.ResourceLimiter
 }
 
 type crusoeCloudConfig struct {
@@ -115,10 +122,11 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 	klog.V(4).Infof("Crusoe Cloud Provider built; ClusterId=%s,APIKey=%s-***,Region=%s,ApiURL=%s", cfg.ClusterID, cfg.AccessKey[:8], cfg.Region, cfg.APIEndpoint)
 
 	return &crusoeCloudProvider{
-		client:    client,
-		region:    cfg.Region,
-		projectID: cfg.ProjectID,
-		clusterID: cfg.ClusterID,
+		client:          client,
+		region:          cfg.Region,
+		projectID:       cfg.ProjectID,
+		clusterID:       cfg.ClusterID,
+		resourceLimiter: rl,
 	}
 }
 
@@ -152,6 +160,8 @@ func (*crusoeCloudProvider) Name() string {
 	return cloudprovider.CrusoeCloudProviderName
 }
 
+// WIP:
+// -----------
 // NodeGroups returns all node groups configured for this cluster.
 // critical endpoint, make it fast
 func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
@@ -206,7 +216,7 @@ func (ccp *crusoeCloudProvider) NewNodeGroup(
 // GetResourceLimiter returns struct containing limits (max, min) for resources (cores, memory etc.).
 func (ccp *crusoeCloudProvider) GetResourceLimiter() (*cloudprovider.ResourceLimiter, error) {
 	klog.V(4).Info("GetResourceLimiter,called")
-	return nil, cloudprovider.ErrNotImplemented
+	return ccp.resourceLimiter, nil
 }
 
 // GPULabel returns the label added to nodes with GPU resource.
@@ -241,7 +251,7 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 	klog.V(4).Info("Refresh,ClusterID=", ccp.clusterID)
 
 	ctx := context.Background()
-	resp, _, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.clusterID) // should be projectID, &crusoego.ListPoolsRequest{ClusterID: ccp.clusterID})
+	resp, _, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.projectID) // should also specify ClusterID: ccp.clusterID
 
 	if err != nil {
 		klog.Errorf("Refresh,failed to list pools for cluster %s: %s", ccp.clusterID, err)
@@ -262,3 +272,6 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 
 	return nil
 }
+
+// -----------
+// WIP: ^^^
