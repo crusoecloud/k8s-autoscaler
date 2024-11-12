@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 
 	apiv1 "k8s.io/api/core/v1"
@@ -160,8 +162,6 @@ func (*crusoeCloudProvider) Name() string {
 	return cloudprovider.CrusoeCloudProviderName
 }
 
-// WIP:
-// -----------
 // NodeGroups returns all node groups configured for this cluster.
 // critical endpoint, make it fast
 func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
@@ -182,12 +182,23 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
 	klog.V(4).Infof("NodeGroupForNode,NodeSpecProviderID=%s", node.Spec.ProviderID)
 
-	return nil, cloudprovider.ErrNotImplemented
+	for _, ng := range ccp.nodeGroups {
+		if _, ok := ng.nodes[node.GetName()]; ok {
+			return ng, nil
+		}
+	}
+	return nil, nil
 }
 
 // HasInstance returns whether a given node has a corresponding instance in this cloud provider
 func (ccp *crusoeCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
-	return true, cloudprovider.ErrNotImplemented
+
+	for _, ng := range ccp.nodeGroups {
+		if _, ok := ng.nodes[node.GetName()]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Pricing return pricing model for crusoecloud.
@@ -251,27 +262,41 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 	klog.V(4).Info("Refresh,ClusterID=", ccp.clusterID)
 
 	ctx := context.Background()
-	resp, _, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.projectID) // should also specify ClusterID: ccp.clusterID
+	resp, _, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.projectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(ccp.clusterID)})
 
 	if err != nil {
 		klog.Errorf("Refresh,failed to list pools for cluster %s: %s", ccp.clusterID, err)
 		return err
 	}
 
-	var ng []*NodeGroup
+	var ngs []*NodeGroup
 
 	for _, p := range resp.Items {
-		ng = append(ng, &NodeGroup{
+		var instances map[string]*crusoeapi.InstanceV1Alpha5
+
+		ng := NodeGroup{
 			APIClient: ccp.client,
 			pool:      &p,
-		})
-	}
-	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", ccp.clusterID, len(ng))
+		}
 
-	ccp.nodeGroups = ng
+		// TODO: batch this for very large instance groups? (better: generate a provider ID so we don't need to fetch)
+		restI, _, err := ccp.client.VMsApi.ListInstances(ctx, ccp.projectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString(strings.Join(p.InstanceIds, ",")),
+		})
+		if err != nil {
+			klog.Errorf("Refresh,failed to list instances for cluster %s nodepool %s: %s", ccp.clusterID, p.Id, err)
+			return err
+		}
+		for _, instance := range restI.Items {
+			instances[instance.Name] = &instance
+		}
+		ng.nodes = instances
+		ngs = append(ngs, &ng)
+	}
+	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", ccp.clusterID, len(ngs))
+
+	ccp.nodeGroups = ngs
 
 	return nil
 }
-
-// -----------
-// WIP: ^^^

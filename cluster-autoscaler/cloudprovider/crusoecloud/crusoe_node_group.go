@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	crusoego "github.com/crusoecloud/client-go/swagger/v1alpha5"
+	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
@@ -38,8 +38,9 @@ const (
 // NodeGroup implements cloudprovider.NodeGroup interface.
 // it is used to resize a Crusoe Managed Kubernetes (CMK) Pool which is a group of nodes with the same capacity.
 type NodeGroup struct {
-	*crusoego.APIClient
-	pool *crusoego.KubernetesNodePool
+	*crusoeapi.APIClient
+	pool  *crusoeapi.KubernetesNodePool
+	nodes map[string]*crusoeapi.InstanceV1Alpha5
 }
 
 // MaxSize returns maximum size of the node group.
@@ -84,7 +85,7 @@ func (ng *NodeGroup) IncreaseSize(delta int) error {
 	}
 
 	ctx := context.Background()
-	poolUpdateResp, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoego.KubernetesNodePoolPatchRequest{
+	poolUpdateResp, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoeapi.KubernetesNodePoolPatchRequest{
 		Count: int64(targetSize),
 	}, ng.pool.ProjectId, ng.pool.Id)
 	if err != nil {
@@ -138,12 +139,12 @@ func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	// 	}
 
 	// 	updatedNode, _, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.ID)
-	// 	if err != nil || updatedNode.Status != crusoego.NodeStatusDeleting {
+	// 	if err != nil || updatedNode.Status != crusoeapi.NodeStatusDeleting {
 	// 		return err
 	// 	}
 
 	// 	ng.p.Size--
-	// 	ng.nodes[n.Spec.ProviderID].Status = crusoego.NodeStatusDeleting
+	// 	ng.nodes[n.Spec.ProviderID].Status = crusoeapi.NodeStatusDeleting
 	// }
 
 	return nil
@@ -169,7 +170,7 @@ func (ng *NodeGroup) DecreaseTargetSize(delta int) error {
 	}
 
 	ctx := context.Background()
-	_ /*resp*/, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoego.KubernetesNodePoolPatchRequest{
+	_ /*resp*/, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoeapi.KubernetesNodePoolPatchRequest{
 		Count: targetSize,
 	}, ng.pool.ProjectId, ng.pool.Id)
 	if err != nil {
