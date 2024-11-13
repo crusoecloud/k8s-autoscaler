@@ -275,6 +275,13 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 	for _, p := range resp.Items {
 		var instances map[string]*crusoeapi.InstanceV1Alpha5
 
+		// this is especially until the rest-gateway change is shipped
+		if p.ClusterId != ccp.clusterID {
+			klog.Warningf("Skipping unexpected nodepool %s for cluster %s (!= %s)",
+				p.Id, p.ClusterId, ccp.clusterID)
+			continue
+		}
+
 		ng := NodeGroup{
 			APIClient: ccp.client,
 			pool:      &p,
