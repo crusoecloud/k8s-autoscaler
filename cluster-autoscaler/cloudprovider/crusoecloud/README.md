@@ -29,4 +29,5 @@ The values expected by the autoscaler are the same as above
 
 ## Notes
 
-TODO: k8s nodes are identified through `node.Spec.ProviderId`, the Crusoe node name or id MUST NOT be used.
+TODO: k8s nodes are identified through configured projectID + `node.Name`,
+which is incorrect. They should be correctly identified via `node.Spec.ProviderId`.

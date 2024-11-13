@@ -128,24 +128,24 @@ func (ng *NodeGroup) AtomicIncreaseSize(delta int) error {
 // failure or if the given node doesn't belong to this node group. This function
 // should wait until node group size is updated.
 func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
-	// ctx := context.Background()
+	ctx := context.Background()
 	klog.V(4).Info("DeleteNodes,", len(nodes), " nodes to reclaim")
-	// for _, n := range nodes {
+	for _, n := range nodes {
 
-	// 	node, ok := ng.nodes[n.Spec.ProviderID]
-	// 	if !ok {
-	// 		klog.Errorf("DeleteNodes,ProviderID=%s,PoolID=%s,node marked for deletion not found in pool", n.Spec.ProviderID, ng.p.ID)
-	// 		continue
-	// 	}
+		node, ok := ng.nodes[n.Name]
+		if !ok {
+			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
+			continue
+		}
 
-	// 	updatedNode, _, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.ID)
-	// 	if err != nil || updatedNode.Status != crusoeapi.NodeStatusDeleting {
-	// 		return err
-	// 	}
+		resp, _, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.Id)
+		if err != nil || resp.Operation.State == string(opFailed) {
+			return err
+		}
 
-	// 	ng.p.Size--
-	// 	ng.nodes[n.Spec.ProviderID].Status = crusoeapi.NodeStatusDeleting
-	// }
+		ng.pool.Count--
+		ng.nodes[n.Name].State = "SHUTDOWN"
+	}
 
 	return nil
 }
@@ -198,7 +198,17 @@ func (ng *NodeGroup) Debug() string {
 
 // Nodes returns a list of all nodes that belong to this node group.
 func (ng *NodeGroup) Nodes() ([]cloudprovider.Instance, error) {
+	var nodes []cloudprovider.Instance
+
 	klog.V(4).Info("Nodes,PoolID=", ng.pool.Id)
+
+	for _, node := range ng.nodes {
+		nodes = append(nodes, cloudprovider.Instance{
+			Id:     node.Name,
+			Status: fromCrusoeStatus(node.State),
+		})
+	}
+
 	return nil, cloudprovider.ErrNotImplemented
 }
 
@@ -248,4 +258,43 @@ func (ng *NodeGroup) Autoprovisioned() bool {
 // GetOptions returns nil which means 'use defaults options'
 func (ng *NodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
 	return nil, cloudprovider.ErrNotImplemented
+}
+
+func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
+	st := &cloudprovider.InstanceStatus{}
+	switch status {
+	case "RUNNING":
+		st.State = cloudprovider.InstanceRunning
+	case "BLOCKED":
+		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
+			ErrorCode:    "STATE_BLOCKED",
+			ErrorMessage: "crusoe node creation blocked on resources",
+		}
+	case "DEFINING", "PAUSED":
+		st.State = cloudprovider.InstanceCreating
+	case "SHUTDOWN":
+		st.State = cloudprovider.InstanceDeleting
+	case "SHUTOFF":
+		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
+			ErrorCode:    "STATE_SHUTOFF",
+			ErrorMessage: "crusoe node has been shut off",
+		}
+	case "CRASHED":
+		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
+			ErrorCode:    "STATE_CRASHED",
+			ErrorMessage: "crusoe node has crashed",
+		}
+	case "PMSUSPENDED":
+		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
+			ErrorCode:    "STATE_PMSUSPENDED",
+			ErrorMessage: "crusoe node has been suspended for power management",
+		}
+	default: // includes UNSPECIFIED
+		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
+			ErrorCode:    status,
+			ErrorMessage: "unknown state",
+		}
+	}
+
+	return st
 }
