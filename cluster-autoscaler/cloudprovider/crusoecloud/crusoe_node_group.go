@@ -138,9 +138,13 @@ func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			continue
 		}
 
-		resp, _, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.Id)
+		resp, httpResp, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.Id)
 		if err != nil || resp.Operation.State == string(opFailed) {
 			return err
+		}
+		if httpResp.StatusCode >= 400 {
+			klog.Errorf("Refresh,failed to delete node %s: http error %s",
+				node.Id, httpResp.Status)
 		}
 
 		ng.pool.Count--

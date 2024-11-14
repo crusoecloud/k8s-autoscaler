@@ -140,8 +140,10 @@ metadata:
   namespace: kube-system
 data:
   cloud-config: |-
-    api-endpoint: "https://api.crusoecloud.com/v1alpha5"
-    region: "us-east1-a"
+    {
+      "api-endpoint": "https://api.crusoecloud.com/v1alpha5",
+      "region": "us-east1-a"
+    }
 
 ---
 apiVersion: apps/v1
@@ -168,6 +170,7 @@ spec:
             - --v=6
             - --logtostderr=true
             - --cloud-provider=crusoecloud
+            - --cloud-config=/config/cloud-config
           env:
             - name: CRUSOE_PROJECT_ID
               valueFrom:
@@ -182,7 +185,7 @@ spec:
             - name: CRUSOE_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  key: AccessKeey
+                  key: AccessKey
                   name: cluster-autoscaler-crusoe
             - name: CRUSOE_SECRET_KEY
               valueFrom:

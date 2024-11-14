@@ -19,6 +19,7 @@ package crusoecloud
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -111,6 +112,7 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 			klog.Errorf("failed to read/parse crusoecloud config file: %s", err)
 		}
 	}
+	klog.V(4).Infof("parsed config file: %+v", cfg)
 
 	// env takes precedence over config passed by command-line
 	cfg.APIEndpoint = getenvOr("CRUSOE_API_URL", cfg.APIEndpoint)
@@ -118,10 +120,12 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
 	cfg.Region = getenvOr("CRUSOE_REGION", cfg.Region)
 	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
-	cfg.ClusterID = getenvOr("CLUSTER_ID", cfg.ClusterID)
+	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
+	klog.V(4).Infof("parsed config vars: %+v", cfg)
 
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, defaultUserAgent)
-	klog.V(4).Infof("Crusoe Cloud Provider built; ClusterId=%s,APIKey=%s-***,Region=%s,ApiURL=%s", cfg.ClusterID, cfg.AccessKey[:8], cfg.Region, cfg.APIEndpoint)
+	klog.V(4).Infof("Crusoe Cloud Provider built; ProjectId=%s;ClusterId=%s,AccessKey=%s-***,Region=%s,ApiURL=%s",
+		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:8], cfg.Region, cfg.APIEndpoint)
 
 	return &crusoeCloudProvider{
 		client:          client,
@@ -259,16 +263,22 @@ func (ccp *crusoeCloudProvider) Cleanup() error {
 // Refresh is called before every main loop and can be used to dynamically update cloud provider state.
 // In particular the list of node groups returned by NodeGroups can change as a result of CloudProvider.Refresh().
 func (ccp *crusoeCloudProvider) Refresh() error {
-	klog.V(4).Info("Refresh,ClusterID=", ccp.clusterID)
+	klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s", ccp.projectID, ccp.clusterID)
 
 	ctx := context.Background()
-	resp, _, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.projectID,
+	resp, httpResp, err := ccp.client.KubernetesNodePoolsApi.ListNodePools(ctx, ccp.projectID,
 		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(ccp.clusterID)})
 
 	if err != nil {
 		klog.Errorf("Refresh,failed to list pools for cluster %s: %s", ccp.clusterID, err)
 		return err
 	}
+	if httpResp.StatusCode >= 400 {
+		klog.Errorf("Refresh,failed to list pools for cluster %s: http error %s",
+			ccp.clusterID, httpResp.Status)
+		return fmt.Errorf("HTTP %s", httpResp.Status)
+	}
+	klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s ListNodePools returns %d IDs", ccp.projectID, ccp.clusterID, len(resp.Items))
 
 	var ngs []*NodeGroup
 
@@ -288,14 +298,21 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 		}
 
 		// TODO: batch this for very large instance groups? (better: generate a provider ID so we don't need to fetch)
-		restI, _, err := ccp.client.VMsApi.ListInstances(ctx, ccp.projectID, &crusoeapi.VMsApiListInstancesOpts{
+		respI, httpRespI, err := ccp.client.VMsApi.ListInstances(ctx, ccp.projectID, &crusoeapi.VMsApiListInstancesOpts{
 			Ids: optional.NewString(strings.Join(p.InstanceIds, ",")),
 		})
 		if err != nil {
 			klog.Errorf("Refresh,failed to list instances for cluster %s nodepool %s: %s", ccp.clusterID, p.Id, err)
 			return err
 		}
-		for _, instance := range restI.Items {
+		if httpRespI.StatusCode >= 400 {
+			klog.Errorf("Refresh,failed to list instances for cluster %s nodepool %s: http error %s",
+				ccp.clusterID, p.Id, httpRespI.Status)
+			return fmt.Errorf("HTTP %s", httpRespI.Status)
+		}
+		klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs", ccp.projectID, ccp.clusterID, p.Id, len(p.InstanceIds), len(respI.Items))
+
+		for _, instance := range respI.Items {
 			instances[instance.Name] = &instance
 		}
 		ng.nodes = instances
