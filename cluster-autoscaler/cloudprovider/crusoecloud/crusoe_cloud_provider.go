@@ -283,7 +283,7 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 	var ngs []*NodeGroup
 
 	for _, p := range resp.Items {
-		var instances map[string]*crusoeapi.InstanceV1Alpha5
+		var instances = make(map[string]*crusoeapi.InstanceV1Alpha5)
 
 		// this is especially until the rest-gateway change is shipped
 		if p.ClusterId != ccp.clusterID {
