@@ -186,6 +186,9 @@ github.com/Microsoft/hcsshim/osversion
 # github.com/NYTimes/gziphandler v1.1.1
 ## explicit; go 1.11
 github.com/NYTimes/gziphandler
+# github.com/antihax/optional v1.0.0
+## explicit; go 1.13
+github.com/antihax/optional
 # github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230321174746-8dcc6526cfb1
 ## explicit; go 1.18
 github.com/antlr/antlr4/runtime/Go/antlr/v4
@@ -290,6 +293,9 @@ github.com/coreos/go-semver/semver
 github.com/coreos/go-systemd/v22/daemon
 github.com/coreos/go-systemd/v22/dbus
 github.com/coreos/go-systemd/v22/journal
+# github.com/crusoecloud/client-go v0.1.67
+## explicit; go 1.17
+github.com/crusoecloud/client-go/swagger/v1alpha5
 # github.com/cyphar/filepath-securejoin v0.2.4
 ## explicit; go 1.13
 github.com/cyphar/filepath-securejoin
