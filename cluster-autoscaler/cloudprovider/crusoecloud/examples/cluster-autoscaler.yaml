@@ -141,8 +141,7 @@ metadata:
 data:
   cloud-config: |-
     {
-      "api-endpoint": "https://api.crusoecloud.com/v1alpha5",
-      "region": "us-east1-a"
+      "api-endpoint": "https://api.crusoecloud.com/v1alpha5"
     }
 
 ---
