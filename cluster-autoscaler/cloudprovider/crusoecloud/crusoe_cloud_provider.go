@@ -59,8 +59,6 @@ var (
 type crusoeCloudProvider struct {
 	// client talks to Crusoecloud API
 	client *crusoeapi.APIClient
-	// Region is the cloud region where the CMK cluster is located.
-	region string
 	// ProjectID is the project id containing the CMK cluster.
 	projectID string
 	// ClusterID is the CMK cluster id where the Autoscaler is running.
@@ -78,8 +76,6 @@ type crusoeCloudConfig struct {
 	AccessKey string `json:"access_key"`
 	// SecretKey is an API secret key
 	SecretKey string `json:"secret_key"`
-	// Region is the cloud region
-	Region string `json:"region"`
 	// ProjectID is the project id containing the CMK cluster.
 	ProjectID string `json:"project_id"`
 	// ClusterID is the CMK cluster id where the Autoscaler is running.
@@ -118,18 +114,16 @@ func newCrusoeCloudProvider(configFile io.Reader, defaultUserAgent string, rl *c
 	cfg.APIEndpoint = getenvOr("CRUSOE_API_URL", cfg.APIEndpoint)
 	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
 	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
-	cfg.Region = getenvOr("CRUSOE_REGION", cfg.Region)
 	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
 	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
 	klog.V(4).Infof("parsed config vars: %+v", cfg)
 
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, defaultUserAgent)
-	klog.V(4).Infof("Crusoe Cloud Provider built; ProjectId=%s;ClusterId=%s,AccessKey=%s-***,Region=%s,ApiURL=%s",
-		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:8], cfg.Region, cfg.APIEndpoint)
+	klog.V(4).Infof("Crusoe Cloud Provider built; ProjectId=%s;ClusterId=%s,AccessKey=%s-***,ApiURL=%s",
+		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:8], cfg.APIEndpoint)
 
 	return &crusoeCloudProvider{
 		client:          client,
-		region:          cfg.Region,
 		projectID:       cfg.ProjectID,
 		clusterID:       cfg.ClusterID,
 		resourceLimiter: rl,
