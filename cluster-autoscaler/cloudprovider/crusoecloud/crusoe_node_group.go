@@ -38,9 +38,9 @@ const (
 // NodeGroup implements cloudprovider.NodeGroup interface.
 // it is used to resize a Crusoe Managed Kubernetes (CMK) Pool which is a group of nodes with the same capacity.
 type NodeGroup struct {
-	*crusoeapi.APIClient
-	pool  *crusoeapi.KubernetesNodePool
-	nodes map[string]*crusoeapi.InstanceV1Alpha5
+	manager *crusoeManager
+	pool    *crusoeapi.KubernetesNodePool
+	nodes   map[string]*crusoeapi.InstanceV1Alpha5
 }
 
 // MaxSize returns maximum size of the node group.
@@ -85,22 +85,20 @@ func (ng *NodeGroup) IncreaseSize(delta int) error {
 	}
 
 	ctx := context.Background()
-	poolUpdateResp, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoeapi.KubernetesNodePoolPatchRequest{
-		Count: int64(targetSize),
-	}, ng.pool.ProjectId, ng.pool.Id)
+	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		return err
 	}
-	op := poolUpdateResp.Operation
 
+	// TODO: implement proper wait utility
 	for op.State == string(opInProgress) {
-		updatedOp, _, err := ng.KubernetesNodePoolOperationsApi.GetKubernetesNodePoolsOperation(ctx, ng.pool.ProjectId, poolUpdateResp.Operation.OperationId)
+		updatedOp, err := ng.manager.GetNodePoolOperation(ctx, op.OperationId)
 		if err != nil {
 			return fmt.Errorf("failed waiting for nodepool operation: %w", err)
 		}
 		time.Sleep(2 * time.Second) // TODO: implement backoff
 
-		op = &updatedOp
+		op = updatedOp
 	}
 
 	if op.State == string(opFailed) {
@@ -138,13 +136,15 @@ func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			continue
 		}
 
-		resp, httpResp, err := ng.VMsApi.DeleteInstance(ctx, ng.pool.ProjectId, node.Id)
-		if err != nil || resp.Operation.State == string(opFailed) {
+		op, err := ng.manager.DeleteVMInstance(ctx, node.Id)
+		if err != nil {
+			klog.Errorf("DeleteNodes,failed to delete node %s: %s",
+				node.Id, err)
 			return err
 		}
-		if httpResp.StatusCode >= 400 {
-			klog.Errorf("Refresh,failed to delete node %s: http error %s",
-				node.Id, httpResp.Status)
+		if op.State == string(opFailed) {
+			klog.Errorf("DeleteNodes,failed to delete node %s: operation error %s",
+				node.Id, op.Result) // TODO: parse result?
 		}
 
 		ng.pool.Count--
@@ -174,9 +174,7 @@ func (ng *NodeGroup) DecreaseTargetSize(delta int) error {
 	}
 
 	ctx := context.Background()
-	_ /*resp*/, _, err := ng.KubernetesNodePoolsApi.UpdateNodePool(ctx, crusoeapi.KubernetesNodePoolPatchRequest{
-		Count: targetSize,
-	}, ng.pool.ProjectId, ng.pool.Id)
+	_ /*op*/, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		return err
 	}
@@ -213,7 +211,7 @@ func (ng *NodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 		})
 	}
 
-	return nil, cloudprovider.ErrNotImplemented
+	return nodes, nil
 }
 
 // TemplateNodeInfo returns a schedulerframework.NodeInfo structure of an empty
@@ -233,13 +231,12 @@ func (ng *NodeGroup) Exist() bool {
 
 	klog.V(4).Infof("Exist,PoolID=%s", ng.pool.Id)
 
-	_, _, err := ng.KubernetesNodePoolsApi.GetNodePool(context.Background(), ng.pool.ProjectId, ng.pool.Id)
+	_, err := ng.manager.GetNodePool(context.Background(), ng.pool.Id)
 	if err != nil {
 		// log? any additional check?
 		return false
 	}
 	return true
-
 }
 
 // Pool Autoprovision feature is not supported by Crusoe cloud yet
