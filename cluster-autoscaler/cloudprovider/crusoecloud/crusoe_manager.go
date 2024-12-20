@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,12 +18,38 @@ package crusoecloud
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
+	"k8s.io/klog/v2"
 )
+
+type crusoeCloudConfig struct {
+	// APIEndpoint is the HTTP API URL
+	APIEndpoint string `json:"api_endpoint"`
+	// AccessKey is an API access key
+	AccessKey string `json:"access_key"`
+	// SecretKey is an API secret key
+	SecretKey string `json:"secret_key"`
+	// ProjectID is the project id containing the CMK cluster.
+	ProjectID string `json:"project_id"`
+	// ClusterID is the CMK cluster id where the Autoscaler is running.
+	ClusterID string `json:"cluster_id"`
+}
+
+func readConf(config *crusoeCloudConfig, configFile io.Reader) error {
+	body, err := io.ReadAll(configFile)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(body, config)
+	return err
+}
 
 type crusoeManager struct {
 	// client talks to Crusoecloud API
@@ -34,7 +60,36 @@ type crusoeManager struct {
 	clusterID string
 }
 
-func NewManager(cfg *crusoeCloudConfig, userAgent string) *crusoeManager {
+func newManager(configFile io.Reader, userAgent string) *crusoeManager {
+	getenvOr := func(key, defaultValue string) string {
+		value := os.Getenv(key)
+		if value != "" {
+			return value
+		}
+		return defaultValue
+	}
+
+	// Config file passed with `cloud-config` flag
+	cfg := crusoeCloudConfig{}
+	if configFile != nil {
+		err := readConf(&cfg, configFile)
+		if err != nil {
+			klog.Errorf("failed to read/parse crusoecloud config file: %s", err)
+		}
+	}
+	klog.V(4).Infof("parsed config file: %+v", cfg)
+
+	// env takes precedence over config passed by command-line
+	cfg.APIEndpoint = getenvOr("CRUSOE_API_URL", cfg.APIEndpoint)
+	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
+	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
+	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
+	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
+	klog.V(4).Infof("parsed config vars: %+v", cfg)
+
+	klog.V(4).Infof("CrusoeCloud Manager built; ProjectId=%s;ClusterId=%s,AccessKey=%s-***,ApiURL=%s",
+		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:8], cfg.APIEndpoint)
+
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, userAgent)
 	return &crusoeManager{
 		client:    client,
