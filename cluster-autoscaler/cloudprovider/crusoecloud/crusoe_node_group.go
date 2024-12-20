@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,25 +35,24 @@ const (
 	Max_NodePool_Size = 32
 )
 
-// NodeGroup implements cloudprovider.NodeGroup interface.
-// it is used to resize a Crusoe Managed Kubernetes (CMK) Pool which is a group of nodes with the same capacity.
-type NodeGroup struct {
+// crusoeNodeGroup implements cloudprovider.NodeGroup interface. It contains
+// configuration info and functions to control a CrusoeCloud Managed Kubernetes (CMK)
+// NodePool, which is a set of nodes that have the same capacity and set of labels.
+type crusoeNodeGroup struct {
 	manager *crusoeManager
 	pool    *crusoeapi.KubernetesNodePool
 	nodes   map[string]*crusoeapi.InstanceV1Alpha5
 }
 
 // MaxSize returns maximum size of the node group.
-func (ng *NodeGroup) MaxSize() int {
-	klog.V(6).Info("MaxSize,called")
-
+func (ng *crusoeNodeGroup) MaxSize() int {
+	// TODO: should not be a constant
 	return int(Max_NodePool_Size)
 }
 
 // MinSize returns minimum size of the node group.
-func (ng *NodeGroup) MinSize() int {
-	klog.V(6).Info("MinSize,called")
-
+func (ng *crusoeNodeGroup) MinSize() int {
+	// TODO: should not be a constant
 	return int(Min_NodePool_Size)
 }
 
@@ -61,16 +60,14 @@ func (ng *NodeGroup) MinSize() int {
 // number of nodes in Kubernetes is different at the moment but should be equal
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
-func (ng *NodeGroup) TargetSize() (int, error) {
-	klog.V(6).Info("TargetSize,called")
+func (ng *crusoeNodeGroup) TargetSize() (int, error) {
 	return int(ng.pool.Count), nil
 }
 
 // IncreaseSize increases the size of the node group. To delete a node you need
 // to explicitly name it and use DeleteNode. This function should wait until
 // node group size is updated.
-func (ng *NodeGroup) IncreaseSize(delta int) error {
-
+func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	klog.V(4).Infof("IncreaseSize,ClusterID=%s,delta=%d", ng.pool.ClusterId, delta)
 
 	if delta <= 0 {
@@ -118,14 +115,14 @@ func (ng *NodeGroup) IncreaseSize(delta int) error {
 }
 
 // AtomicIncreaseSize is not implemented.
-func (ng *NodeGroup) AtomicIncreaseSize(delta int) error {
+func (ng *crusoeNodeGroup) AtomicIncreaseSize(delta int) error {
 	return cloudprovider.ErrNotImplemented
 }
 
 // DeleteNodes deletes nodes from this node group. Error is returned either on
 // failure or if the given node doesn't belong to this node group. This function
 // should wait until node group size is updated.
-func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
+func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 	klog.V(4).Info("DeleteNodes,", len(nodes), " nodes to reclaim")
 	for _, n := range nodes {
@@ -143,8 +140,8 @@ func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			return err
 		}
 		if op.State == string(opFailed) {
-			klog.Errorf("DeleteNodes,failed to delete node %s: operation error %s",
-				node.Id, op.Result) // TODO: parse result?
+			// exit or wait at this point?
+			klog.Errorf("DeleteNodes,failed to delete node %s: operation error", node.Id) // TODO: handle result, etc.
 		}
 
 		ng.pool.Count--
@@ -159,8 +156,7 @@ func (ng *NodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 // request for new nodes that have not been yet fulfilled. Delta should be negative.
 // It is assumed that cloud provider will not delete the existing nodes when there
 // is an option to just decrease the target.
-func (ng *NodeGroup) DecreaseTargetSize(delta int) error {
-
+func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 	klog.V(4).Infof("DecreaseTargetSize,ClusterID=%s,delta=%d", ng.pool.ClusterId, delta)
 
 	if delta >= 0 {
@@ -188,18 +184,19 @@ func (ng *NodeGroup) DecreaseTargetSize(delta int) error {
 }
 
 // Id returns an unique identifier of the node group.
-func (ng *NodeGroup) Id() string {
+func (ng *crusoeNodeGroup) Id() string {
 	return ng.pool.Id
 }
 
 // Debug returns a string containing all information regarding this node group.
-func (ng *NodeGroup) Debug() string {
-	klog.V(4).Info("Debug,called")
+func (ng *crusoeNodeGroup) Debug() string {
 	return fmt.Sprintf("id:%s,status:%s,imageid:%s,size:%d,min_size:%d,max_size:%d", ng.Id(), ng.pool.State, ng.pool.ImageId, ng.pool.Count, ng.MinSize(), ng.MaxSize())
 }
 
-// Nodes returns a list of all nodes that belong to this node group.
-func (ng *NodeGroup) Nodes() ([]cloudprovider.Instance, error) {
+// Nodes returns a list of all nodes that belong to this node group.  It is
+// required that Instance objects returned by this method have ID field set.
+// Other fields are optional.
+func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 	var nodes []cloudprovider.Instance
 
 	klog.V(4).Info("Nodes,PoolID=", ng.pool.Id)
@@ -220,44 +217,36 @@ func (ng *NodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 // NodeInfo is expected to have a fully populated Node object, with all of the labels,
 // capacity and allocatable information as well as all pods that are started on
 // the node by default, using manifest (most likely only kube-proxy).
-func (ng *NodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
-	klog.V(4).Infof("TemplateNodeInfo,PoolID=%s", ng.pool.Id)
+func (ng *crusoeNodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
 	return nil, cloudprovider.ErrNotImplemented
 }
 
 // Exist checks if the node group really exists on the cloud provider side. Allows to tell the
 // theoretical node group from the real one.
-func (ng *NodeGroup) Exist() bool {
-
-	klog.V(4).Infof("Exist,PoolID=%s", ng.pool.Id)
-
-	_, err := ng.manager.GetNodePool(context.Background(), ng.pool.Id)
-	if err != nil {
-		// log? any additional check?
-		return false
-	}
-	return true
+func (ng *crusoeNodeGroup) Exist() bool {
+	resp, err := ng.manager.GetNodePool(context.Background(), ng.pool.Id)
+	return err == nil && resp != nil && resp.Id != ""
 }
 
 // Pool Autoprovision feature is not supported by Crusoe cloud yet
 
 // Create creates the node group on the cloud provider side.
-func (ng *NodeGroup) Create() (cloudprovider.NodeGroup, error) {
+func (ng *crusoeNodeGroup) Create() (cloudprovider.NodeGroup, error) {
 	return nil, cloudprovider.ErrNotImplemented
 }
 
 // Delete deletes the node group on the cloud provider side.
-func (ng *NodeGroup) Delete() error {
+func (ng *crusoeNodeGroup) Delete() error {
 	return cloudprovider.ErrNotImplemented
 }
 
 // Autoprovisioned returns true if the node group is autoprovisioned.
-func (ng *NodeGroup) Autoprovisioned() bool {
+func (ng *crusoeNodeGroup) Autoprovisioned() bool {
 	return false
 }
 
 // GetOptions returns nil which means 'use defaults options'
-func (ng *NodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
+func (ng *crusoeNodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
 	return nil, cloudprovider.ErrNotImplemented
 }
 
