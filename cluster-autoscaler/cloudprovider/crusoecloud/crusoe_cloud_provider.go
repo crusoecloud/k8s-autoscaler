@@ -17,19 +17,17 @@ limitations under the License.
 package crusoecloud
 
 import (
-	"context"
 	"io"
 	"os"
 
-	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
-
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
+
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	ca_errors "k8s.io/autoscaler/cluster-autoscaler/utils/errors"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
-	"k8s.io/klog/v2"
 )
 
 var _ cloudprovider.CloudProvider = &crusoeCloudProvider{}
@@ -37,8 +35,6 @@ var _ cloudprovider.CloudProvider = &crusoeCloudProvider{}
 const (
 	// GPULabel is the label added to nodes with GPU resource.
 	GPULabel = "crusoe.ai/accelerator"
-
-	instanceBatchSize = 50 // page instance fetch by this size
 )
 
 var (
@@ -59,14 +55,12 @@ var (
 type crusoeCloudProvider struct {
 	manager         *crusoeManager
 	resourceLimiter *cloudprovider.ResourceLimiter
-	nodeGroups      []*crusoeNodeGroup
 }
 
 func newCrusoeCloudProvider(manager *crusoeManager, rl *cloudprovider.ResourceLimiter) *crusoeCloudProvider {
 	return &crusoeCloudProvider{
 		manager:         manager,
 		resourceLimiter: rl,
-		nodeGroups:      []*crusoeNodeGroup{},
 	}
 }
 
@@ -77,8 +71,8 @@ func (*crusoeCloudProvider) Name() string {
 
 // NodeGroups returns all node groups configured for this cloud provider.
 func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
-	nodeGroups := make([]cloudprovider.NodeGroup, len(ccp.nodeGroups))
-	for i, ng := range ccp.nodeGroups {
+	nodeGroups := make([]cloudprovider.NodeGroup, len(ccp.manager.NodeGroups()))
+	for i, ng := range ccp.manager.NodeGroups() {
 		nodeGroups[i] = ng
 	}
 	return nodeGroups
@@ -88,7 +82,7 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
-	for _, ng := range ccp.nodeGroups {
+	for _, ng := range ccp.manager.NodeGroups() {
 		if _, ok := ng.nodes[node.GetName()]; ok {
 			return ng, nil
 		}
@@ -98,7 +92,7 @@ func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovide
 
 // HasInstance returns whether a given node has a corresponding instance in this cloud provider
 func (ccp *crusoeCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
-	for _, ng := range ccp.nodeGroups {
+	for _, ng := range ccp.manager.NodeGroups() {
 		if _, ok := ng.nodes[node.GetName()]; ok {
 			return true, nil
 		}
@@ -155,60 +149,14 @@ func (ccp *crusoeCloudProvider) Cleanup() error {
 // Refresh is called before every main loop and can be used to dynamically update cloud provider state.
 // In particular the list of node groups returned by NodeGroups can change as a result of CloudProvider.Refresh().
 func (ccp *crusoeCloudProvider) Refresh() error {
-	// TODO: move implementation to manager?
 	klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s", ccp.manager.projectID, ccp.manager.clusterID)
 
-	ctx := context.Background()
-	pools, err := ccp.manager.ListNodePools(ctx)
+	err := ccp.manager.Refresh()
 	if err != nil {
-		klog.Errorf("Refresh failed: %s", err)
-		return err
+		klog.Errorf("Refresh failed: %v", err)
 	}
-	klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s ListNodePools returns %d IDs",
-		ccp.manager.projectID, ccp.manager.clusterID, len(pools))
 
-	var ngs []*crusoeNodeGroup
-
-	for _, p := range pools {
-		// just in case
-		if p.ClusterId != ccp.manager.clusterID {
-			klog.Warningf("Skipping unexpected nodepool %s for cluster %s (!= %s)",
-				p.Id, p.ClusterId, ccp.manager.clusterID)
-			continue
-		}
-
-		ng := crusoeNodeGroup{
-			manager: ccp.manager,
-			pool:    &p,
-			nodes:   make(map[string]*crusoeapi.InstanceV1Alpha5),
-		}
-
-		for i := 0; i < len(p.InstanceIds); i += instanceBatchSize {
-			end := i + instanceBatchSize
-			if end > len(p.InstanceIds) {
-				end = len(p.InstanceIds)
-			}
-
-			instances, err := ccp.manager.ListVMInstances(ctx, p.InstanceIds[i:end])
-			if err != nil {
-				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
-				return err
-			}
-			klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
-				ccp.manager.projectID, ccp.manager.clusterID, p.Id, len(p.InstanceIds), len(instances))
-
-			for _, instance := range instances {
-				// TODO: change to index by providerID
-				ng.nodes[instance.Name] = &instance
-			}
-		}
-		ngs = append(ngs, &ng)
-	}
-	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", ccp.manager.clusterID, len(ngs))
-
-	ccp.nodeGroups = ngs
-
-	return nil
+	return err
 }
 
 // BuildCrusoeCloud returns CloudProvider implementation for CrusoeCloud.
@@ -217,23 +165,23 @@ func BuildCrusoeCloud(
 	do cloudprovider.NodeGroupDiscoveryOptions,
 	rl *cloudprovider.ResourceLimiter,
 ) cloudprovider.CloudProvider {
-	var configFile io.Reader
+	var cfg io.ReadCloser
 
 	if opts.CloudConfig != "" {
-		configFile, err := os.Open(opts.CloudConfig)
+		var err error
+		cfg, err = os.Open(opts.CloudConfig)
 
 		if err != nil {
-			klog.Errorf("could not open crusoecloud configuration %s: %s", opts.CloudConfig, err)
-		} else {
-			defer func() {
-				err = configFile.Close()
-				if err != nil {
-					klog.Errorf("failed to close crusoecloud config file: %s", err)
-				}
-			}()
+			klog.Fatalf("Couldn't open cloud provider configuration %s: %v", opts.CloudConfig, err)
 		}
+		defer cfg.Close()
 	}
 
-	manager := newManager(configFile, opts.UserAgent)
-	return newCrusoeCloudProvider(manager, rl)
+	manager, err := newManager(cfg, do, opts.UserAgent)
+	if err != nil {
+		klog.Fatalf("Failed to create CrusoeCloud Manager: %v", err)
+	}
+
+	provider := newCrusoeCloudProvider(manager, rl)
+	return provider
 }

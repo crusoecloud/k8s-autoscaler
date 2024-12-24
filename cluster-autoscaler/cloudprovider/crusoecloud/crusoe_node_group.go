@@ -26,13 +26,15 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
+	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
 	"k8s.io/klog/v2"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 const (
+	// TODO: these could be configured defaults
 	Min_NodePool_Size = 1
-	Max_NodePool_Size = 32
+	Max_NodePool_Size = 254
 )
 
 // crusoeNodeGroup implements cloudprovider.NodeGroup interface. It contains
@@ -42,17 +44,22 @@ type crusoeNodeGroup struct {
 	manager *crusoeManager
 	pool    *crusoeapi.KubernetesNodePool
 	nodes   map[string]*crusoeapi.InstanceV1Alpha5
+	spec    *dynamic.NodeGroupSpec
 }
 
 // MaxSize returns maximum size of the node group.
 func (ng *crusoeNodeGroup) MaxSize() int {
-	// TODO: should not be a constant
+	if ng.spec != nil {
+		return ng.spec.MaxSize
+	}
 	return int(Max_NodePool_Size)
 }
 
 // MinSize returns minimum size of the node group.
 func (ng *crusoeNodeGroup) MinSize() int {
-	// TODO: should not be a constant
+	if ng.spec != nil {
+		return ng.spec.MinSize
+	}
 	return int(Min_NodePool_Size)
 }
 
