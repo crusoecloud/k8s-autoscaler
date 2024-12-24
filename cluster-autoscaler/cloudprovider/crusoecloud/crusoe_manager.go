@@ -150,7 +150,7 @@ func (mgr *crusoeManager) Refresh() error {
 			manager: mgr,
 			pool:    &p,
 			nodes:   make(map[string]*crusoeapi.InstanceV1Alpha5),
-			ngSpec:  mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
+			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
 		}
 
 		for i := 0; i < len(p.InstanceIds); i += instanceBatchSize {
