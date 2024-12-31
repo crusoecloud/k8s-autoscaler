@@ -19,6 +19,7 @@ package crusoecloud
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
@@ -133,8 +134,8 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 	klog.V(4).Info("DeleteNodes,", len(nodes), " nodes to reclaim")
 	for _, n := range nodes {
-
-		node, ok := ng.nodes[n.Name]
+		rootName := strings.Split(n.Name, ".")[0]
+		node, ok := ng.nodes[rootName]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
 			continue
