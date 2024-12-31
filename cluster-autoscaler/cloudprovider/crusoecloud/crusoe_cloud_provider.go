@@ -83,7 +83,7 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // occurred. Must be implemented.
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[node.GetName()]; ok {
+		if _, ok := ng.nodes[nodeIndexFor(node)]; ok {
 			return ng, nil
 		}
 	}
@@ -93,7 +93,7 @@ func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovide
 // HasInstance returns whether a given node has a corresponding instance in this cloud provider
 func (ccp *crusoeCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[node.GetName()]; ok {
+		if _, ok := ng.nodes[nodeIndexFor(node)]; ok {
 			return true, nil
 		}
 	}
