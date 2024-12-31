@@ -134,8 +134,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 	klog.V(4).Info("DeleteNodes,", len(nodes), " nodes to reclaim")
 	for _, n := range nodes {
-		rootName := strings.Split(n.Name, ".")[0]
-		node, ok := ng.nodes[rootName]
+		node, ok := ng.nodes[nodeIndexFor(n)]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
 			continue
@@ -256,6 +255,10 @@ func (ng *crusoeNodeGroup) Autoprovisioned() bool {
 // GetOptions returns nil which means 'use defaults options'
 func (ng *crusoeNodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
 	return nil, cloudprovider.ErrNotImplemented
+}
+
+func nodeIndexFor(node *apiv1.Node) string {
+	return strings.Split(node.Name, ".")[0]
 }
 
 func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
