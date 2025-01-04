@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
@@ -46,6 +47,8 @@ type crusoeNodeGroup struct {
 	pool    *crusoeapi.KubernetesNodePool
 	nodes   map[string]*crusoeapi.InstanceV1Alpha5
 	spec    *dynamic.NodeGroupSpec
+
+	updateMutex sync.Mutex
 }
 
 // MaxSize returns maximum size of the node group.
@@ -83,11 +86,13 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	}
 
 	targetSize := ng.pool.Count + int64(delta)
-
 	if targetSize > int64(ng.MaxSize()) {
 		return fmt.Errorf("size increase is too large. current: %d desired: %d max: %d",
 			ng.pool.Count, targetSize, ng.MaxSize())
 	}
+
+	ng.updateMutex.Lock()
+	defer ng.updateMutex.Unlock()
 
 	ctx := context.Background()
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
@@ -97,6 +102,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 
 	// TODO: implement proper wait utility
 	for op.State == string(opInProgress) {
+		klog.V(4).Infof("IncreaseSize,ClusterID=%s checking op state: %v", ng.pool.ClusterId, op.State)
 		updatedOp, err := ng.manager.GetNodePoolOperation(ctx, op.OperationId)
 		if err != nil {
 			return fmt.Errorf("failed waiting for nodepool operation: %w", err)
@@ -108,8 +114,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 
 	if op.State == string(opFailed) {
 		// result := op.Result. .. need to marshal
-		return fmt.Errorf("couldn't increase pool size to %d.",
-			targetSize)
+		return fmt.Errorf("couldn't increase pool size to %d", targetSize)
 	}
 
 	// fetch actual size?
@@ -132,7 +137,20 @@ func (ng *crusoeNodeGroup) AtomicIncreaseSize(delta int) error {
 // should wait until node group size is updated.
 func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
-	klog.V(4).Info("DeleteNodes,", len(nodes), " nodes to reclaim")
+
+	targetSize := ng.pool.Count - int64(len(nodes))
+	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
+
+	ng.updateMutex.Lock()
+	defer ng.updateMutex.Unlock()
+
+	_ /*ngOp*/, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		// for now, ignore error [TODO]
+	}
+
+	vmOps := make([]*crusoeapi.Operation, 0, len(nodes))
 	for _, n := range nodes {
 		node, ok := ng.nodes[nodeIndexFor(n)]
 		if !ok {
@@ -150,11 +168,34 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			// exit or wait at this point?
 			klog.Errorf("DeleteNodes,failed to delete node %s: operation error", node.Id) // TODO: handle result, etc.
 		}
+		vmOps = append(vmOps, op)
 
 		ng.pool.Count--
-		ng.nodes[n.Name].State = "SHUTDOWN"
+		ng.nodes[nodeIndexFor(n)].State = "SHUTDOWN"
 	}
 
+	allComplete := false
+	for !allComplete {
+		inProcess := 0
+		for _, op := range vmOps {
+			updatedOp, err := ng.manager.GetVMOperation(ctx, op.OperationId)
+			klog.V(4).Infof("DeleteNodes,ClusterID=%s checking op %s state: %v", ng.pool.ClusterId, op.OperationId, op.State)
+			if err != nil {
+				return fmt.Errorf("failed waiting for nodepool operation %s: %w", op.OperationId, err)
+			}
+			if updatedOp.State == string(opInProgress) {
+				inProcess++
+			}
+			if updatedOp.State == string(opFailed) {
+				// exit or wait at this point?
+				klog.Errorf("DeleteNodes,failed to delete node with op %s: operation error", op.OperationId) // TODO: handle result, etc.
+			}
+		}
+		if inProcess == 0 {
+			allComplete = true
+		}
+		time.Sleep(2 * time.Second) // TODO: implement backoff
+	}
 	return nil
 }
 
@@ -210,7 +251,7 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 
 	for _, node := range ng.nodes {
 		nodes = append(nodes, cloudprovider.Instance{
-			Id:     node.Name,
+			Id:     node.Id,
 			Status: fromCrusoeStatus(node.State),
 		})
 	}
