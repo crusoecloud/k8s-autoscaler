@@ -36,7 +36,6 @@ import (
 
 const (
 	scaleToZeroSupported = true
-	instanceBatchSize    = 50 // page instance fetch by this size
 )
 
 type crusoeCloudConfig struct {
@@ -86,6 +85,7 @@ type crusoeManager struct {
 	nodePoolOpsApi crusoeK8sNodePoolOperationService
 	vmApi          crusoeVMService
 	vmOpsApi       crusoeVMOperationService
+	waitBackoff    *waitBackoff
 
 	// ProjectID is the project id containing the CMK cluster.
 	projectID string
@@ -142,6 +142,7 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 		nodePoolOpsApi: client.KubernetesNodePoolOperationsApi,
 		vmApi:          client.VMsApi,
 		vmOpsApi:       client.VMOperationsApi,
+		waitBackoff:    newDefaultWaitBackoff(),
 		projectID:      cfg.ProjectID,
 		clusterID:      cfg.ClusterID,
 		nodeGroupSpecs: ngSpecs,
@@ -179,26 +180,7 @@ func (mgr *crusoeManager) Refresh() error {
 			nodes:   make(map[string]*crusoeapi.InstanceV1Alpha5),
 			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
 		}
-
-		for i := 0; i < len(p.InstanceIds); i += instanceBatchSize {
-			end := i + instanceBatchSize
-			if end > len(p.InstanceIds) {
-				end = len(p.InstanceIds)
-			}
-
-			instances, err := mgr.ListVMInstances(ctx, p.InstanceIds[i:end])
-			if err != nil {
-				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
-				return err
-			}
-			klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
-				mgr.projectID, mgr.clusterID, p.Id, len(p.InstanceIds), len(instances))
-
-			for _, instance := range instances {
-				// TODO: change to index by providerID
-				ng.nodes[instance.Name] = &instance
-			}
-		}
+		ng.refreshNodes(ctx, p.InstanceIds)
 		ngs = append(ngs, &ng)
 	}
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
@@ -261,6 +243,16 @@ func (mgr *crusoeManager) GetNodePoolOperation(ctx context.Context, opID string)
 	return &resp, nil
 }
 
+func (mgr *crusoeManager) WaitForNodePoolOperationComplete(ctx context.Context, op *crusoeapi.Operation) (*crusoeapi.Operation, error) {
+	return mgr.waitBackoff.WaitForOperationComplete(ctx, op, func(ctx context.Context, operationId string) (*crusoeapi.Operation, error) {
+		updatedOp, err := mgr.GetNodePoolOperation(ctx, op.OperationId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to poll for nodepool operation: %w", err)
+		}
+		return updatedOp, nil
+	})
+}
+
 func (mgr *crusoeManager) ListVMInstances(ctx context.Context, instanceIds []string) ([]crusoeapi.InstanceV1Alpha5, error) {
 	resp, httpResp, err := mgr.vmApi.ListInstances(ctx, mgr.projectID, &crusoeapi.VMsApiListInstancesOpts{
 		Ids: optional.NewString(strings.Join(instanceIds, ",")),
@@ -297,4 +289,16 @@ func (mgr *crusoeManager) GetVMOperation(ctx context.Context, opID string) (*cru
 		return nil, fmt.Errorf("failed to get VM operation %s: http error %s", opID, httpResp.Status)
 	}
 	return &resp, nil
+}
+
+func (mgr *crusoeManager) WaitForVMOperationListComplete(ctx context.Context, ops []*crusoeapi.Operation) (
+	[]*crusoeapi.Operation, error,
+) {
+	return mgr.waitBackoff.WaitForOperationListComplete(ctx, ops, func(ctx context.Context, operationId string) (*crusoeapi.Operation, error) {
+		updatedOp, err := mgr.GetVMOperation(ctx, operationId)
+		if err != nil {
+			return nil, fmt.Errorf("failed to poll for VM operation: %w", err)
+		}
+		return updatedOp, nil
+	})
 }
