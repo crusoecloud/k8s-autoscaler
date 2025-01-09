@@ -44,6 +44,7 @@ func testManagerWithMocks() (*crusoeManager, *crusoeMocks) {
 		nodePoolOpsApi: &client.nodePoolOpsApi,
 		vmApi:          &client.vmApi,
 		vmOpsApi:       &client.vmOpsApi,
+		waitBackoff:    newDefaultWaitBackoff(),
 
 		projectID: testProjectID,
 		clusterID: testClusterID,

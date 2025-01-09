@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 	"github.com/stretchr/testify/assert"
 	apiv1 "k8s.io/api/core/v1"
@@ -37,7 +38,8 @@ func testNodeGroupWithMocks(count int) (*crusoeNodeGroup, *crusoeMocks) {
 			ClusterId: testClusterID,
 			Count:     int64(count),
 		},
-		spec: testNodeSpec(),
+		spec:  testNodeSpec(),
+		nodes: map[string]*crusoeapi.InstanceV1Alpha5{},
 	}, mocks
 }
 
@@ -89,6 +91,49 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 		crusoeapi.Operation{
 			OperationId: "opId",
 			State:       string(opSucceeded),
+		}, httpSuccessResponse(), nil,
+	).Once()
+
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id:          testNodePoolID,
+			ProjectId:   testProjectID,
+			ClusterId:   testClusterID,
+			InstanceIds: []string{"nodeId4", "nodeId5"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmApi.On("ListInstances", ctx, testProjectID,
+		&crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId4,nodeId5"),
+		}).Return(
+		crusoeapi.ListInstancesResponseV1Alpha5{
+			Items: []crusoeapi.InstanceV1Alpha5{
+				{
+					Id:        "nodeId1",
+					Name:      "node1",
+					ProjectId: testProjectID,
+				},
+				{
+					Id:        "nodeId2",
+					Name:      "node2",
+					ProjectId: testProjectID,
+				},
+				{
+					Id:        "nodeId3",
+					Name:      "node3",
+					ProjectId: testProjectID,
+				},
+				{
+					Id:        "nodeId4",
+					Name:      "node4",
+					ProjectId: testProjectID,
+				},
+				{
+					Id:        "nodeId5",
+					Name:      "node5",
+					ProjectId: testProjectID,
+				},
+			},
 		}, httpSuccessResponse(), nil,
 	).Once()
 
@@ -194,6 +239,13 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 		}, httpSuccessResponse(), nil,
 	).Once()
 
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
+		crusoeapi.Operation{
+			OperationId: "opId",
+			State:       string(opSucceeded),
+		}, httpSuccessResponse(), nil,
+	).Once()
+
 	nodes := []*apiv1.Node{
 		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-1.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://f80ce5b1-7c77-4177-bd5f-0d803f5b7c15"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-2.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://6c22c989-ddce-41d8-98cb-2aea83c72066"}},
@@ -268,6 +320,13 @@ func TestNodeGroup_DeleteNodesFail(t *testing.T) {
 	nodes := []*apiv1.Node{
 		{ObjectMeta: metav1.ObjectMeta{Name: "nonexistent-on-provider-side.local"}, Spec: apiv1.NodeSpec{ProviderID: "nonexistent-on-provider-side"}},
 	}
+
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
+		crusoeapi.Operation{
+			OperationId: "opId",
+			State:       string(opSucceeded),
+		}, httpSuccessResponse(), nil,
+	).Once()
 
 	mocks.vmApi.On("DeleteInstance", ctx, testProjectID, "6852824b-e409-4c77-94df-819629d135b9").
 		Return(crusoeapi.AsyncOperationResponse{

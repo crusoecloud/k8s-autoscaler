@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 
@@ -37,6 +36,8 @@ const (
 	// TODO: these could be configured defaults
 	Min_NodePool_Size = 1
 	Max_NodePool_Size = 254
+
+	instanceBatchSize = 50 // page instance fetch by this size
 )
 
 // crusoeNodeGroup implements cloudprovider.NodeGroup interface. It contains
@@ -100,30 +101,50 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return err
 	}
 
-	// TODO: implement proper wait utility
-	for op.State == string(opInProgress) {
-		klog.V(4).Infof("IncreaseSize,ClusterID=%s checking op state: %v", ng.pool.ClusterId, op.State)
-		updatedOp, err := ng.manager.GetNodePoolOperation(ctx, op.OperationId)
-		if err != nil {
-			return fmt.Errorf("failed waiting for nodepool operation: %w", err)
-		}
-		time.Sleep(2 * time.Second) // TODO: implement backoff
-
-		op = updatedOp
+	op, err = ng.manager.WaitForNodePoolOperationComplete(ctx, op)
+	if err != nil {
+		return fmt.Errorf("couldn't increase pool size to %d: %w", targetSize, err)
 	}
-
 	if op.State == string(opFailed) {
-		// result := op.Result. .. need to marshal
-		return fmt.Errorf("couldn't increase pool size to %d", targetSize)
+		return fmt.Errorf("couldn't increase pool size to %d: operation failed with %v", targetSize, op.Result)
 	}
 
-	// fetch actual size?
-	// if pool.Count != targetSize {
-	// 	return fmt.Errorf("couldn't increase size to %d. Current size is: %d",
-	// 		targetSize, pool.Size)
-	// }
+	newPool, err := ng.manager.GetNodePool(ctx, ng.pool.Id)
+	if err != nil {
+		return fmt.Errorf("couldn't fetch updated pool: %w (should be ok after refresh)", err)
+	}
+	ng.pool = newPool
+	err = ng.refreshNodes(ctx, newPool.InstanceIds)
+	if err != nil {
+		return fmt.Errorf("couldn't fetch updated nodes: %w (should be ok after refresh)", err)
+	}
 
 	ng.pool.Count = targetSize
+	return nil
+}
+
+func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) error {
+	ng.pool.InstanceIds = nodeIds
+
+	for i := 0; i < len(nodeIds); i += instanceBatchSize {
+		end := i + instanceBatchSize
+		if end > len(nodeIds) {
+			end = len(nodeIds)
+		}
+
+		instances, err := ng.manager.ListVMInstances(ctx, nodeIds[i:end])
+		if err != nil {
+			klog.Errorf("Refresh failed for nodepool %s: %s", ng.pool.Id, err)
+			return err
+		}
+		klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
+			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
+
+		for _, instance := range instances {
+			// TODO: change to index by providerID
+			ng.nodes[instance.Name] = &instance
+		}
+	}
 	return nil
 }
 
@@ -144,12 +165,20 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ng.updateMutex.Lock()
 	defer ng.updateMutex.Unlock()
 
-	_ /*ngOp*/, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
+	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
-		// for now, ignore error [TODO]
+		return err
 	}
-	// wait and check error ..
+
+	ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
+	}
+	if ngOp.State == string(opFailed) {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, ngOp.Result)
+		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
+	}
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodes))
 	for _, n := range nodes {
@@ -165,39 +194,16 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 				node.Id, err)
 			return err
 		}
-		if op.State == string(opFailed) {
-			// exit or wait at this point?
-			klog.Errorf("DeleteNodes,failed to delete node %s: operation error", node.Id) // TODO: handle result, etc.
-		}
 		vmOps = append(vmOps, op)
 
 		ng.pool.Count--
 		ng.nodes[nodeIndexFor(n)].State = "SHUTDOWN"
 	}
 
-	allComplete := false
-	for !allComplete {
-		inProcess := 0
-		for _, op := range vmOps {
-			updatedOp, err := ng.manager.GetVMOperation(ctx, op.OperationId)
-			klog.V(4).Infof("DeleteNodes,ClusterID=%s checking op %s state: %v", ng.pool.ClusterId, op.OperationId, updatedOp.State)
-			if err != nil {
-				return fmt.Errorf("failed waiting for VM operation %s: %w", op.OperationId, err)
-			}
-			if updatedOp.State == string(opInProgress) {
-				inProcess++
-			}
-			if updatedOp.State == string(opFailed) {
-				// exit or wait at this point?
-				klog.Errorf("DeleteNodes,failed to delete node with op %s: operation error", op.OperationId) // TODO: handle result, etc.
-				return fmt.Errorf("VM operation %s failed: %v", op.OperationId, op.Result)
-			}
-		}
-		if inProcess == 0 {
-			allComplete = true
-			klog.Errorf("DeleteNodes,finished waiting for ops!")
-		}
-		time.Sleep(2 * time.Second) // TODO: implement backoff
+	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
+	if err != nil {
+		klog.Errorf("DeleteNodes,failed to delete one or more nodes: %v", err)
+		return fmt.Errorf("VM operation(s) failed: %w", err)
 	}
 	return nil
 }
@@ -221,14 +227,20 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 	}
 
 	ctx := context.Background()
-	_ /*op*/, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
+	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		return err
 	}
 
-	// check for completion ..
-	// return fmt.Errorf("couldn't decrease size to %d. Current size is: %d",
-	// 	targetSize, pool.Size)
+	ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
+	}
+	if ngOp.State == string(opFailed) {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, ngOp.Result)
+		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
+	}
 
 	ng.pool.Count = targetSize
 	return nil
@@ -254,7 +266,7 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 
 	for _, node := range ng.nodes {
 		nodes = append(nodes, cloudprovider.Instance{
-			Id:     node.Id,
+			Id:     node.Id, // TODO: convert to provider ID?
 			Status: fromCrusoeStatus(node.State),
 		})
 	}
