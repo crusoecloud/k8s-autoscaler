@@ -149,6 +149,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		// for now, ignore error [TODO]
 	}
+	// wait and check error ..
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodes))
 	for _, n := range nodes {
@@ -179,9 +180,9 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		inProcess := 0
 		for _, op := range vmOps {
 			updatedOp, err := ng.manager.GetVMOperation(ctx, op.OperationId)
-			klog.V(4).Infof("DeleteNodes,ClusterID=%s checking op %s state: %v", ng.pool.ClusterId, op.OperationId, op.State)
+			klog.V(4).Infof("DeleteNodes,ClusterID=%s checking op %s state: %v", ng.pool.ClusterId, op.OperationId, updatedOp.State)
 			if err != nil {
-				return fmt.Errorf("failed waiting for nodepool operation %s: %w", op.OperationId, err)
+				return fmt.Errorf("failed waiting for VM operation %s: %w", op.OperationId, err)
 			}
 			if updatedOp.State == string(opInProgress) {
 				inProcess++
@@ -189,10 +190,12 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			if updatedOp.State == string(opFailed) {
 				// exit or wait at this point?
 				klog.Errorf("DeleteNodes,failed to delete node with op %s: operation error", op.OperationId) // TODO: handle result, etc.
+				return fmt.Errorf("VM operation %s failed: %v", op.OperationId, op.Result)
 			}
 		}
 		if inProcess == 0 {
 			allComplete = true
+			klog.Errorf("DeleteNodes,finished waiting for ops!")
 		}
 		time.Sleep(2 * time.Second) // TODO: implement backoff
 	}
@@ -238,7 +241,7 @@ func (ng *crusoeNodeGroup) Id() string {
 
 // Debug returns a string containing all information regarding this node group.
 func (ng *crusoeNodeGroup) Debug() string {
-	return fmt.Sprintf("id:%s,status:%s,imageid:%s,size:%d,min_size:%d,max_size:%d", ng.Id(), ng.pool.State, ng.pool.ImageId, ng.pool.Count, ng.MinSize(), ng.MaxSize())
+	return fmt.Sprintf("node group %s: min=%d max=%d target=%d", ng.Id(), ng.MinSize(), ng.MaxSize(), ng.pool.Count)
 }
 
 // Nodes returns a list of all nodes that belong to this node group.  It is

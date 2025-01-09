@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -60,9 +61,32 @@ func readConf(config *crusoeCloudConfig, configFile io.Reader) error {
 	return err
 }
 
+type crusoeK8sNodePoolService interface {
+	GetNodePool(ctx context.Context, projectId string, vmId string) (crusoeapi.KubernetesNodePool, *http.Response, error)
+	ListNodePools(ctx context.Context, projectId string, listOptions *crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts) (crusoeapi.ListKubernetesNodePoolsResponse, *http.Response, error)
+	UpdateNodePool(ctx context.Context, body crusoeapi.KubernetesNodePoolPatchRequest, projectId string, nodePoolId string) (crusoeapi.AsyncOperationResponse, *http.Response, error)
+}
+
+type crusoeK8sNodePoolOperationService interface {
+	GetKubernetesNodePoolsOperation(ctx context.Context, projectId string, opId string) (crusoeapi.Operation, *http.Response, error)
+}
+
+type crusoeVMService interface {
+	DeleteInstance(ctx context.Context, projectId string, vmId string) (crusoeapi.AsyncOperationResponse, *http.Response, error)
+	ListInstances(ctx context.Context, projectId string, localVarOptionals *crusoeapi.VMsApiListInstancesOpts) (crusoeapi.ListInstancesResponseV1Alpha5, *http.Response, error)
+}
+
+type crusoeVMOperationService interface {
+	GetComputeVMsInstancesOperation(ctx context.Context, projectId string, opId string) (crusoeapi.Operation, *http.Response, error)
+}
+
 type crusoeManager struct {
-	// Client talks to Crusoecloud API
-	client *crusoeapi.APIClient
+	// Service clients to Crusoecloud API
+	nodePoolsApi   crusoeK8sNodePoolService
+	nodePoolOpsApi crusoeK8sNodePoolOperationService
+	vmApi          crusoeVMService
+	vmOpsApi       crusoeVMOperationService
+
 	// ProjectID is the project id containing the CMK cluster.
 	projectID string
 	// ClusterID is the CMK cluster id where the Autoscaler is running.
@@ -114,7 +138,10 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, userAgent)
 	return &crusoeManager{
-		client:         client,
+		nodePoolsApi:   client.KubernetesNodePoolsApi,
+		nodePoolOpsApi: client.KubernetesNodePoolOperationsApi,
+		vmApi:          client.VMsApi,
+		vmOpsApi:       client.VMOperationsApi,
 		projectID:      cfg.ProjectID,
 		clusterID:      cfg.ClusterID,
 		nodeGroupSpecs: ngSpecs,
@@ -182,7 +209,7 @@ func (mgr *crusoeManager) Refresh() error {
 }
 
 func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.KubernetesNodePool, error) {
-	resp, httpResp, err := mgr.client.KubernetesNodePoolsApi.ListNodePools(ctx, mgr.projectID,
+	resp, httpResp, err := mgr.nodePoolsApi.ListNodePools(ctx, mgr.projectID,
 		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(mgr.clusterID)})
 
 	if err != nil {
@@ -196,7 +223,7 @@ func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.Kubern
 }
 
 func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crusoeapi.KubernetesNodePool, error) {
-	resp, httpResp, err := mgr.client.KubernetesNodePoolsApi.GetNodePool(ctx, mgr.projectID, poolID)
+	resp, httpResp, err := mgr.nodePoolsApi.GetNodePool(ctx, mgr.projectID, poolID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nodepool %s: %w", poolID, err)
@@ -208,7 +235,7 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 }
 
 func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, poolID string, targetSize int64) (*crusoeapi.Operation, error) {
-	resp, httpResp, err := mgr.client.KubernetesNodePoolsApi.UpdateNodePool(ctx,
+	resp, httpResp, err := mgr.nodePoolsApi.UpdateNodePool(ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{Count: targetSize},
 		mgr.projectID, poolID)
 
@@ -223,7 +250,7 @@ func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, poolID string, tar
 }
 
 func (mgr *crusoeManager) GetNodePoolOperation(ctx context.Context, opID string) (*crusoeapi.Operation, error) {
-	resp, httpResp, err := mgr.client.KubernetesNodePoolOperationsApi.GetKubernetesNodePoolsOperation(ctx, mgr.projectID, opID)
+	resp, httpResp, err := mgr.nodePoolOpsApi.GetKubernetesNodePoolsOperation(ctx, mgr.projectID, opID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nodepool operation %s: %w", opID, err)
@@ -235,7 +262,7 @@ func (mgr *crusoeManager) GetNodePoolOperation(ctx context.Context, opID string)
 }
 
 func (mgr *crusoeManager) ListVMInstances(ctx context.Context, instanceIds []string) ([]crusoeapi.InstanceV1Alpha5, error) {
-	resp, httpResp, err := mgr.client.VMsApi.ListInstances(ctx, mgr.projectID, &crusoeapi.VMsApiListInstancesOpts{
+	resp, httpResp, err := mgr.vmApi.ListInstances(ctx, mgr.projectID, &crusoeapi.VMsApiListInstancesOpts{
 		Ids: optional.NewString(strings.Join(instanceIds, ",")),
 	})
 	if err != nil {
@@ -249,7 +276,7 @@ func (mgr *crusoeManager) ListVMInstances(ctx context.Context, instanceIds []str
 }
 
 func (mgr *crusoeManager) DeleteVMInstance(ctx context.Context, instanceId string) (*crusoeapi.Operation, error) {
-	resp, httpResp, err := mgr.client.VMsApi.DeleteInstance(ctx, mgr.projectID, instanceId)
+	resp, httpResp, err := mgr.vmApi.DeleteInstance(ctx, mgr.projectID, instanceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete instance %s for cluster %s: %w", instanceId, mgr.clusterID, err)
 	}
@@ -261,7 +288,7 @@ func (mgr *crusoeManager) DeleteVMInstance(ctx context.Context, instanceId strin
 }
 
 func (mgr *crusoeManager) GetVMOperation(ctx context.Context, opID string) (*crusoeapi.Operation, error) {
-	resp, httpResp, err := mgr.client.VMOperationsApi.GetComputeVMsInstancesOperation(ctx, mgr.projectID, opID)
+	resp, httpResp, err := mgr.vmOpsApi.GetComputeVMsInstancesOperation(ctx, mgr.projectID, opID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM operation %s: %w", opID, err)
