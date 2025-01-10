@@ -114,18 +114,13 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 			klog.Errorf("failed to read/parse crusoecloud config file: %s", err)
 		}
 	}
-	klog.V(4).Infof("parsed config file: %+v", cfg)
 
 	// env takes precedence over config passed by command-line (TODO: probably don't need env for all of these)
-	cfg.APIEndpoint = getenvOr("CRUSOE_API_URL", cfg.APIEndpoint)
 	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
 	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
-	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
-	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
-	klog.V(4).Infof("parsed config vars: %+v", cfg)
 
-	klog.V(4).Infof("CrusoeCloud Manager built; ProjectId=%s;ClusterId=%s,AccessKey=%s-***,ApiURL=%s",
-		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:8], cfg.APIEndpoint)
+	klog.V(4).Infof("CrusoeCloud Manager built; ProjectId=%s;ClusterId=%s,AccessKey=%s***,ApiURL=%s",
+		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:4], cfg.APIEndpoint)
 
 	ngSpecs := make(map[string]*dynamic.NodeGroupSpec)
 	for _, nodeGroupSpec := range discoveryOpts.NodeGroupSpecs {
