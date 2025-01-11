@@ -9,7 +9,7 @@ Cluster Autoscaler can be configured with 2 options
 ### Config file
 a config file can be passed with the `--cloud-config` flag.  
 here is the corresponding JSON schema:
-* `api_url`: URL to contact Crusoe cloud, defaults to `https://api.crusoecloud.com/v1alpha5`
+* `api_endpoint`: URL to contact Crusoe cloud, defaults to `https://api.crusoecloud.com/v1alpha5`
 * `access_key`: API Access Key used to manage associated Crusoe resources
 * `secret_key`: API Secret Key used to manage associated Crusoe resources
 * `project_id`: Crusoe Project Id
@@ -17,13 +17,10 @@ here is the corresponding JSON schema:
 
 ### Env variables
 
-The values expected by the autoscaler are the same as above
+The secret values expected by the autoscaler can also be passed as environment variables:
 
-- `CRUSOE_API_URL`
 - `CRUSOE_ACCESS_KEY`
 - `CRUSOE_SECRET_KEY`
-- `CRUSOE_PROJECT_ID`
-- `CLUSTER_ID`
 
 ## Notes
 
