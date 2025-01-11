@@ -35,6 +35,7 @@ import (
 )
 
 const (
+	defaultApiEndpoint   = "https://api.crusoecloud.com/v1alpha5"
 	scaleToZeroSupported = true
 )
 
@@ -113,6 +114,11 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 		if err != nil {
 			klog.Errorf("failed to read/parse crusoecloud config file: %s", err)
 		}
+	}
+
+	// apply default if needed
+	if cfg.APIEndpoint == "" {
+		cfg.APIEndpoint = defaultApiEndpoint
 	}
 
 	// env takes precedence over config passed by command-line (TODO: probably don't need env for all of these)
