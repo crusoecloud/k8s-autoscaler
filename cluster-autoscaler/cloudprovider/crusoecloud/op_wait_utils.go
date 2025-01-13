@@ -35,9 +35,7 @@ const (
 )
 
 var (
-	errorUnknownOperationState    = errors.New("unknown operation state")
-	errorResponseMissingOperation = errors.New("response missing operation")
-	errorOperationDidNotSucceed   = errors.New("operation did not succeed")
+	errorOperationDidNotSucceed = errors.New("operation did not succeed")
 )
 
 type waitBackoff struct {
@@ -61,8 +59,8 @@ type pollOpFunc func(ctx context.Context, operationId string) (*crusoeapi.Operat
 func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*crusoeapi.Operation, pollOp pollOpFunc) (
 	[]*crusoeapi.Operation, error,
 ) {
-	if len(ops) == 0 {
-		return nil, errorResponseMissingOperation
+	if len(ops) == 0 { // ignore empty list
+		return nil, nil
 	}
 
 	var wg sync.WaitGroup
@@ -87,7 +85,7 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 	}
 	for i, op := range results {
 		if op.State == string(opFailed) {
-			multiErr = multierr.Append(multiErr, fmt.Errorf("failed to complete operation %d: %v", i, op.Result))
+			multiErr = multierr.Append(multiErr, fmt.Errorf("failed to complete operation %d (result %v): %w", i, op.Result, errorOperationDidNotSucceed))
 		}
 	}
 
