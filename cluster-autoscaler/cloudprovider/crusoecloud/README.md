@@ -21,8 +21,3 @@ The secret values expected by the autoscaler can also be passed as environment v
 
 - `CRUSOE_ACCESS_KEY`
 - `CRUSOE_SECRET_KEY`
-
-## Notes
-
-TODO: k8s nodes are identified through configured projectID + `node.Name`,
-which is incorrect. They should be correctly identified via `node.Spec.ProviderId`.
