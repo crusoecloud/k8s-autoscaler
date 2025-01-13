@@ -121,7 +121,7 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 		cfg.APIEndpoint = defaultApiEndpoint
 	}
 
-	// env takes precedence over config passed by command-line (TODO: probably don't need env for all of these)
+	// env takes precedence over config passed by command-line
 	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
 	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
 

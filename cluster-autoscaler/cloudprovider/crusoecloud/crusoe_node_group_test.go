@@ -217,9 +217,9 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	delta := -3
 	ng, mocks := testNodeGroupWithMocks(nodeCount)
 	ng.nodes = map[string]*crusoeapi.InstanceV1Alpha5{
-		"np-12345-1": {Id: "6852824b-e409-4c77-94df-819629d135b9"},
-		"np-12345-2": {Id: "84acb1a6-0e14-4j36-8b32-71bf7b328c22"},
-		"np-12345-3": {Id: "5c4d832a-d964-4c64-9d53-b9295c206cdd"},
+		"6852824b-e409-4c77-94df-819629d135b9": {Name: "np-12345-1", Id: "6852824b-e409-4c77-94df-819629d135b9"},
+		"84acb1a6-0e14-4j36-8b32-71bf7b328c22": {Name: "np-12345-2", Id: "84acb1a6-0e14-4j36-8b32-71bf7b328c22"},
+		"5c4d832a-d964-4c64-9d53-b9295c206cdd": {Name: "np-12345-3", Id: "5c4d832a-d964-4c64-9d53-b9295c206cdd"},
 	}
 
 	newSize := int64(nodeCount + delta)
@@ -247,9 +247,9 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	).Once()
 
 	nodes := []*apiv1.Node{
-		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-1.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://f80ce5b1-7c77-4177-bd5f-0d803f5b7c15"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-2.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://6c22c989-ddce-41d8-98cb-2aea83c72066"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-3.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://fcc3abe0-3a72-4178-8182-2a93fdc72529"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-1.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://6852824b-e409-4c77-94df-819629d135b9"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-2.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://84acb1a6-0e14-4j36-8b32-71bf7b328c22"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "np-12345-3.region.local"}, Spec: apiv1.NodeSpec{ProviderID: "crusoe://5c4d832a-d964-4c64-9d53-b9295c206cdd"}},
 	}
 	mocks.vmApi.On("DeleteInstance", ctx, testProjectID, "6852824b-e409-4c77-94df-819629d135b9").
 		Return(crusoeapi.AsyncOperationResponse{

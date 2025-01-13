@@ -17,8 +17,9 @@ limitations under the License.
 package crusoecloud
 
 import (
-	"io"
+	"fmt"
 	"os"
+	"strings"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,8 +34,9 @@ import (
 var _ cloudprovider.CloudProvider = &crusoeCloudProvider{}
 
 const (
-	// GPULabel is the label added to nodes with GPU resource.
 	GPULabel = "crusoe.ai/accelerator"
+
+	crusoeProviderIDPrefix = "crusoe://"
 )
 
 var (
@@ -83,7 +85,7 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // occurred. Must be implemented.
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[nodeIndexFor(node)]; ok {
+		if _, ok := ng.nodes[toNodeID(node.Spec.ProviderID)]; ok {
 			return ng, nil
 		}
 	}
@@ -93,7 +95,7 @@ func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovide
 // HasInstance returns whether a given node has a corresponding instance in this cloud provider
 func (ccp *crusoeCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[nodeIndexFor(node)]; ok {
+		if _, ok := ng.nodes[toNodeID(node.Spec.ProviderID)]; ok {
 			return true, nil
 		}
 	}
@@ -159,29 +161,42 @@ func (ccp *crusoeCloudProvider) Refresh() error {
 	return err
 }
 
+// toProviderID returns a provider ID from the given node ID.
+func toProviderID(nodeID string) string {
+	return fmt.Sprintf("%s%s", crusoeProviderIDPrefix, nodeID)
+}
+
+// toNodeID returns a node or droplet ID from the given provider ID.
+func toNodeID(providerID string) string {
+	return strings.TrimPrefix(providerID, crusoeProviderIDPrefix)
+}
+
 // BuildCrusoeCloud returns CloudProvider implementation for CrusoeCloud.
 func BuildCrusoeCloud(
 	opts config.AutoscalingOptions,
 	do cloudprovider.NodeGroupDiscoveryOptions,
 	rl *cloudprovider.ResourceLimiter,
 ) cloudprovider.CloudProvider {
-	var cfg io.ReadCloser
-
-	if opts.CloudConfig != "" {
-		var err error
-		cfg, err = os.Open(opts.CloudConfig)
-
-		if err != nil {
-			klog.Fatalf("Couldn't open cloud provider configuration %s: %v", opts.CloudConfig, err)
-		}
-		defer cfg.Close()
+	if opts.CloudConfig == "" {
+		klog.Fatalf("No config file provided, please specify it via the --cloud-config flag")
 	}
 
-	manager, err := newManager(cfg, do, opts.UserAgent)
+	configFile, err := os.Open(opts.CloudConfig)
+	if err != nil {
+		klog.Fatalf("Could not open cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
+	}
+
+	defer configFile.Close()
+
+	manager, err := newManager(configFile, do, opts.UserAgent)
 	if err != nil {
 		klog.Fatalf("Failed to create CrusoeCloud Manager: %v", err)
 	}
 
+	// the cloud provider automatically uses all node pools in CrusoeCloud for
+	// the specified clusterID. The cloudprovider.NodeGroupDiscoveryOptions
+	// flags (which can be set via '--node-group-auto-discovery' or '-nodes') are
+	// used to specify min and max pool sizes.
 	provider := newCrusoeCloudProvider(manager, rl)
 	return provider
 }

@@ -19,7 +19,6 @@ package crusoecloud
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
@@ -125,6 +124,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 
 func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) error {
 	ng.pool.InstanceIds = nodeIds
+	newNodes := make(map[string]*crusoeapi.InstanceV1Alpha5)
 
 	for i := 0; i < len(nodeIds); i += instanceBatchSize {
 		end := i + instanceBatchSize
@@ -141,10 +141,11 @@ func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) e
 			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
 
 		for _, instance := range instances {
-			// TODO: change to index by providerID
-			ng.nodes[instance.Name] = &instance
+			newNodes[instance.Id] = &instance
 		}
 	}
+
+	ng.nodes = newNodes
 	return nil
 }
 
@@ -182,7 +183,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodes))
 	for _, n := range nodes {
-		node, ok := ng.nodes[nodeIndexFor(n)]
+		node, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
 			continue
@@ -197,7 +198,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		vmOps = append(vmOps, op)
 
 		ng.pool.Count--
-		ng.nodes[nodeIndexFor(n)].State = "SHUTDOWN"
+		ng.nodes[toNodeID(n.Spec.ProviderID)].State = "SHUTDOWN"
 	}
 
 	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
@@ -266,7 +267,7 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 
 	for _, node := range ng.nodes {
 		nodes = append(nodes, cloudprovider.Instance{
-			Id:     node.Id, // TODO: convert to provider ID?
+			Id:     toProviderID(node.Id),
 			Status: fromCrusoeStatus(node.State),
 		})
 	}
@@ -311,10 +312,6 @@ func (ng *crusoeNodeGroup) Autoprovisioned() bool {
 // GetOptions returns nil which means 'use defaults options'
 func (ng *crusoeNodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOptions) (*config.NodeGroupAutoscalingOptions, error) {
 	return nil, cloudprovider.ErrNotImplemented
-}
-
-func nodeIndexFor(node *apiv1.Node) string {
-	return strings.Split(node.Name, ".")[0]
 }
 
 func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
