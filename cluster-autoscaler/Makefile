@@ -47,6 +47,9 @@ build-arch-%: clean-arch-%
 test-unit: clean build
 	go test --test.short -race ./... ${TAGS_FLAG}
 
+# make target for crusoe fork
+ci: test-unit
+
 dev-release: dev-release-arch-$(GOARCH)
 
 dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
