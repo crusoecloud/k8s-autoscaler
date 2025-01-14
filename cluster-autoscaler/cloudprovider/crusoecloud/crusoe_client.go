@@ -47,6 +47,7 @@ type AuthenticatingTransport struct {
 	http.RoundTripper
 }
 
+// NewAuthenticatingTransport creates an authenticating RoundTripper for Crusoe Cloud
 func NewAuthenticatingTransport(r http.RoundTripper, keyID, secretKey string) AuthenticatingTransport {
 	if r == nil {
 		r = http.DefaultTransport
@@ -59,6 +60,7 @@ func NewAuthenticatingTransport(r http.RoundTripper, keyID, secretKey string) Au
 	}
 }
 
+// RoundTrip implements an authenticating RoundTripper for Crusoe Cloud
 func (t AuthenticatingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err := addSignature(r, t.keyID, t.secretKey); err != nil {
 		return nil, err

@@ -32,9 +32,8 @@ import (
 )
 
 const (
-	// TODO: these could be configured defaults
-	Min_NodePool_Size = 1
-	Max_NodePool_Size = 254
+	defaultMinNodePoolSize = 1
+	defaultMaxNodePoolSize = 254
 
 	instanceBatchSize = 50 // page instance fetch by this size
 )
@@ -56,7 +55,7 @@ func (ng *crusoeNodeGroup) MaxSize() int {
 	if ng.spec != nil {
 		return ng.spec.MaxSize
 	}
-	return int(Max_NodePool_Size)
+	return int(defaultMaxNodePoolSize)
 }
 
 // MinSize returns minimum size of the node group.
@@ -64,7 +63,7 @@ func (ng *crusoeNodeGroup) MinSize() int {
 	if ng.spec != nil {
 		return ng.spec.MinSize
 	}
-	return int(Min_NodePool_Size)
+	return int(defaultMinNodePoolSize)
 }
 
 // TargetSize returns the current target size of the node group. It is possible that the

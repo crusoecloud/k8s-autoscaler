@@ -34,6 +34,7 @@ import (
 var _ cloudprovider.CloudProvider = &crusoeCloudProvider{}
 
 const (
+	// GPULabel is the label added to nodes with GPU resource.
 	GPULabel = "crusoe.ai/accelerator"
 
 	crusoeProviderIDPrefix = "crusoe://"
