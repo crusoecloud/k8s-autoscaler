@@ -60,6 +60,9 @@ test-build-tags:
 test-unit: clean build
 	go test --test.short -race ./... -vet="${GO_TEST_DEFAULT_ANALYZERS}" ${TAGS_FLAG}
 
+# make target for crusoe fork
+ci: test-unit
+
 dev-release: dev-release-arch-$(GOARCH)
 
 dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
