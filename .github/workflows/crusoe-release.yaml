@@ -41,6 +41,7 @@ jobs:
         shell: bash
 
       - name: Read version and push tag
+        working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
         run: |
           source variables.env
           echo "Calculated version: $RELEASE_VERSION"
