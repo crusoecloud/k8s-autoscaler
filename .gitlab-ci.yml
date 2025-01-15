@@ -7,6 +7,7 @@ variables:
   SUBPROJECT: cluster-autoscaler
   SUBPROJECT_PATH: cluster-autoscaler/
   SUBPROJECT_REL_PATH: ./cluster-autoscaler
+  REPOSITORY: registry.gitlab.com/crusoeenergy/island/external/k8s-autoscaler
 
 test_and_lint:
   rules:
