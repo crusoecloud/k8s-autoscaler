@@ -9,4 +9,5 @@ The branch structure is as follows:
   releases specific tags like `cluster-autoscaler-release-1.xx.y` (e.g. `1.30.3`)
 - The Crusoe branches are based on an upstream tag, like
   `crusoe-cluster-autoscaler-release-1.xx.y` (e.g. `1.30.3`) and releases
-  will be named like `crusoe-cluster-autoscaler-release-1.xx.y-crusoe-z`.
+  will be named like `crusoe-cluster-autoscaler-release-1.xx.y-crusoe.z`.
+  
