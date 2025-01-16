@@ -6,7 +6,7 @@ metadata:
     k8s-addon: cluster-autoscaler.addons.k8s.io
     k8s-app: cluster-autoscaler
   name: cluster-autoscaler
-  namespace: kube-system
+  namespace: crusoe-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -121,16 +121,6 @@ subjects:
 
 ---
 apiVersion: v1
-data:
-  AccessKey: <base64-encoded-access-key>
-  SecretKey: <base64-encoded-secret-key>
-kind: Secret
-metadata:
-  name: cluster-autoscaler-crusoe
-  namespace: kube-system
-
----
-apiVersion: v1
 kind: ConfigMap
 metadata:
 metadata:
@@ -140,7 +130,6 @@ data:
   cloud-config: |-
     {
       "api_endpoint": "https://api.crusoecloud.com/v1alpha5",
-      "project_id": "<project-id>",
       "cluster_id": "<cluster-id>"
     }
 
@@ -171,17 +160,9 @@ spec:
             - --cloud-provider=crusoecloud
             - --cloud-config=/config/cloud-config
             - --nodes=<min>:<max>:<nodepool>
-          env:
-            - name: CRUSOE_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  key: AccessKey
-                  name: cluster-autoscaler-crusoe
-            - name: CRUSOE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  key: SecretKey
-                  name: cluster-autoscaler-crusoe
+          envFrom:
+            - secretRef:
+                name: crusoe-secrets
           image: registry.k8s.io/autoscaling/cluster-autoscaler:{{ ca_version }}
           imagePullPolicy: Always
           name: cluster-autoscaler

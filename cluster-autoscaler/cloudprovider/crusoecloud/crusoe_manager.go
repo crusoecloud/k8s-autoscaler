@@ -122,8 +122,11 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 	}
 
 	// env takes precedence over config passed by command-line
+	cfg.ProjectID = getenvOr("CRUSOE_PROJECT_ID", cfg.ProjectID)
+	cfg.ClusterID = getenvOr("CRUSOE_CLUSTER_ID", cfg.ClusterID)
 	cfg.AccessKey = getenvOr("CRUSOE_ACCESS_KEY", cfg.AccessKey)
 	cfg.SecretKey = getenvOr("CRUSOE_SECRET_KEY", cfg.SecretKey)
+	cfg.APIEndpoint = getenvOr("CRUSOE_API_ENDPOINT", cfg.APIEndpoint)
 
 	klog.V(4).Infof("CrusoeCloud Manager built; ProjectId=%s;ClusterId=%s,AccessKey=%s***,ApiURL=%s",
 		cfg.ProjectID, cfg.ClusterID, cfg.AccessKey[:4], cfg.APIEndpoint)
