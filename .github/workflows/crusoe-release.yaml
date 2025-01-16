@@ -68,7 +68,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Run Makefile
         run: |
-          source variables.env
+          source cloudprovider/crusoecloud/variables.env
           echo "Docker tag: $TAG"
           yes | make release
         env:
