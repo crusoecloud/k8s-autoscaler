@@ -39,6 +39,6 @@ fi
 echo "Version for this commit: ${NEW_VERSION}"
 echo "RELEASE_VERSION=${NEW_VERSION}" >> variables.env
 
-DOCKER_TAG="${UPSTREAM_VERSION}-crusoe.${new_build}"
+DOCKER_TAG="${UPSTREAM_VERSION}-crusoe.${new_build:-0}"
 echo "Docker tag for this commit: ${DOCKER_TAG}"
 echo "TAG=${DOCKER_TAG}" >> variables.env
