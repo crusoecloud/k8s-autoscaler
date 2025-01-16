@@ -61,6 +61,7 @@ jobs:
       - name: Run Makefile
         run: |
           source cloudprovider/crusoecloud/variables.env
+          export TAG
           echo "Docker tag: $TAG"
           yes | make release
         env:
