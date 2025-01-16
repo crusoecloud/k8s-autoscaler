@@ -10,4 +10,5 @@ The branch structure is as follows:
 - The Crusoe branches are based on an upstream tag, like
   `crusoe-cluster-autoscaler-release-1.xx.y` (e.g. `1.30.3`) and releases
   will be named like `crusoe-cluster-autoscaler-release-1.xx.y-crusoe.z`.
-  
+
+See also [CrusoeCloud autoscaler provider](./cluster-autoscaler/cloudprovider/crusoecloud/README.md)
