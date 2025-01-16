@@ -61,7 +61,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9 # v4.0.0
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'cluster-autoscaler/go.mod'
           cache: true
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
