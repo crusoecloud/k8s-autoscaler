@@ -17,7 +17,10 @@ here is the corresponding JSON schema:
 
 ### Env variables
 
-The secret values expected by the autoscaler can also be passed as environment variables:
+The values expected by the autoscaler can also be passed as environment variables:
 
+- `CRUSOE_PROJECT_ID`
+- `CRUSOE_CLUSTER_ID`
 - `CRUSOE_ACCESS_KEY`
 - `CRUSOE_SECRET_KEY`
+- `CRUSOE_API_ENDPOINT`
