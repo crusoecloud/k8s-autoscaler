@@ -69,7 +69,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: cluster-autoscaler
-  namespace: kube-system
+  namespace: crusoe-system
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
     k8s-app: cluster-autoscaler
@@ -99,14 +99,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: cluster-autoscaler
-    namespace: kube-system
+    namespace: crusoe-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cluster-autoscaler
-  namespace: kube-system
+  namespace: crusoe-system
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
     k8s-app: cluster-autoscaler
@@ -117,7 +117,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: cluster-autoscaler
-    namespace: kube-system
+    namespace: crusoe-system
 
 ---
 apiVersion: v1
@@ -125,12 +125,11 @@ kind: ConfigMap
 metadata:
 metadata:
   name: cluster-autoscaler-cloud-config
-  namespace: kube-system
+  namespace: crusoe-system
 data:
   cloud-config: |-
     {
       "api_endpoint": "https://api.crusoecloud.com/v1alpha5",
-      "cluster_id": "<cluster-id>"
     }
 
 ---
@@ -140,7 +139,7 @@ metadata:
   labels:
     app: cluster-autoscaler
   name: cluster-autoscaler
-  namespace: kube-system
+  namespace: crusoe-system
 spec:
   replicas: 1
   selector:
@@ -155,7 +154,8 @@ spec:
       containers:
         - command:
             - ./cluster-autoscaler
-            - --v=6
+            - --namespace=crusoe-system
+            - --v=4
             - --logtostderr=true
             - --cloud-provider=crusoecloud
             - --cloud-config=/config/cloud-config
@@ -163,7 +163,7 @@ spec:
           envFrom:
             - secretRef:
                 name: crusoe-secrets
-          image: registry.k8s.io/autoscaling/cluster-autoscaler:{{ ca_version }}
+          image: ghcr.io/crusoecloud/cluster-autoscaler-crusoecloud:{{ ca_version e.g. 1.30.3-crusoe.0 }}
           imagePullPolicy: Always
           name: cluster-autoscaler
           resources:
