@@ -120,19 +120,6 @@ subjects:
     namespace: crusoe-system
 
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-metadata:
-  name: cluster-autoscaler-cloud-config
-  namespace: crusoe-system
-data:
-  cloud-config: |-
-    {
-      "api_endpoint": "https://api.crusoecloud.com/v1alpha5",
-    }
-
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -155,10 +142,8 @@ spec:
         - command:
             - ./cluster-autoscaler
             - --namespace=crusoe-system
-            - --v=4
             - --logtostderr=true
             - --cloud-provider=crusoecloud
-            - --cloud-config=/config/cloud-config
             - --nodes=<min>:<max>:<nodepool>
           envFrom:
             - secretRef:
@@ -177,15 +162,9 @@ spec:
             - name: ssl-certs
               mountPath: /etc/ssl/certs/ca-certificates.crt
               readOnly: true
-            - name: cloud-config
-              mountPath: /config
-              readOnly: true
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       volumes:
         - name: ssl-certs
           hostPath:
             path: "/etc/ssl/certs/ca-certificates.crt"
-        - name: cloud-config
-          configMap:
-            name: cluster-autoscaler-cloud-config
