@@ -3,6 +3,26 @@
 The Crusoe Cloud Provider implementation scales nodes on different pools
 attached to a Crusoe Managed Kubernetes (CMK) cluster.
 
+## Deployment
+
+### As an add-on
+
+When creating the CMK cluster, specify the `cluster-autoscaler` add-on.
+
+In order to configure nodepool size constraints, edit the `cluster-autoscaler` deployment
+(which will be created in the `crusoe-system` namespace) and add one or more command line
+arguments of the form `--nodes=<min>:<max>:<nodepool>` where `<nodepool>` is the name of
+the nodepool.
+
+### In-cluster
+
+Edit [`examples/cluster-autoscaler.yaml`](./examples/cluster-autoscaler.yaml) to configure
+nodepool constraints as above (the `--nodes` command line argument) and deploy using kubectl:
+
+```console
+kubectl apply -f examples/cluster-autoscaler.yaml
+```
+
 ## Configuration
 
 Cluster Autoscaler can be configured with 2 options
