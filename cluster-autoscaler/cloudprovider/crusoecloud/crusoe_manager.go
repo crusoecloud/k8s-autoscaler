@@ -205,7 +205,14 @@ func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.Kubern
 		return nil, fmt.Errorf("failed to list pools for cluster %s: http error %s",
 			mgr.clusterID, httpResp.Status)
 	}
-	return resp.Items, nil
+
+	pools := make([]crusoeapi.KubernetesNodePool, 0, len(resp.Items))
+	for _, pool := range resp.Items {
+		if pool.State == stateRunning {
+			pools = append(pools, pool)
+		}
+	}
+	return pools, nil
 }
 
 func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crusoeapi.KubernetesNodePool, error) {

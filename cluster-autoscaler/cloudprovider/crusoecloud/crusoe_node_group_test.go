@@ -99,6 +99,7 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 			Id:          testNodePoolID,
 			ProjectId:   testProjectID,
 			ClusterId:   testClusterID,
+			State:       stateRunning,
 			InstanceIds: []string{"nodeId4", "nodeId5"},
 		}, httpSuccessResponse(), nil,
 	).Once()
@@ -343,4 +344,40 @@ func TestNodeGroup_DeleteNodesFail(t *testing.T) {
 
 	err := ng.DeleteNodes(nodes)
 	assert.Error(t, err)
+}
+
+func TestNodeGroup_ExistRunning(t *testing.T) {
+	ctx := context.Background()
+	nodes := 2
+	ng, mocks := testNodeGroupWithMocks(nodes)
+
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id:          testNodePoolID,
+			ProjectId:   testProjectID,
+			ClusterId:   testClusterID,
+			State:       stateRunning,
+			InstanceIds: []string{"nodeId4", "nodeId5"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+
+	assert.True(t, ng.Exist())
+}
+
+func TestNodeGroup_ExistNotRunning(t *testing.T) {
+	ctx := context.Background()
+	nodes := 0
+	ng, mocks := testNodeGroupWithMocks(nodes)
+
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id:          testNodePoolID,
+			ProjectId:   testProjectID,
+			ClusterId:   testClusterID,
+			State:       stateDeleting,
+			InstanceIds: []string{},
+		}, httpSuccessResponse(), nil,
+	).Once()
+
+	assert.False(t, ng.Exist())
 }

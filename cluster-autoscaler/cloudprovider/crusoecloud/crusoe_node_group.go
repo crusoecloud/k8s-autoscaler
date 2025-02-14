@@ -288,7 +288,7 @@ func (ng *crusoeNodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, err
 // theoretical node group from the real one.
 func (ng *crusoeNodeGroup) Exist() bool {
 	resp, err := ng.manager.GetNodePool(context.Background(), ng.pool.Id)
-	return err == nil && resp != nil && resp.Id != ""
+	return err == nil && resp != nil && resp.Id != "" && resp.State == stateRunning
 }
 
 // Pool Autoprovision feature is not supported by Crusoe cloud yet
