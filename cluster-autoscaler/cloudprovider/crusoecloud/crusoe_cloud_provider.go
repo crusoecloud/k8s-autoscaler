@@ -178,16 +178,19 @@ func BuildCrusoeCloud(
 	do cloudprovider.NodeGroupDiscoveryOptions,
 	rl *cloudprovider.ResourceLimiter,
 ) cloudprovider.CloudProvider {
-	if opts.CloudConfig == "" {
-		klog.Fatalf("No config file provided, please specify it via the --cloud-config flag")
-	}
+	var configFile *os.File
+	var err error
 
-	configFile, err := os.Open(opts.CloudConfig)
-	if err != nil {
-		klog.Fatalf("Could not open cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
-	}
+	if opts.CloudConfig != "" {
+		configFile, err = os.Open(opts.CloudConfig)
+		if err != nil {
+			klog.Fatalf("Could not open cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
+		}
 
-	defer configFile.Close()
+		defer configFile.Close()
+	} else {
+		klog.Warningf("No config file provided, using environment only")
+	}
 
 	manager, err := newManager(configFile, do, opts.UserAgent)
 	if err != nil {
