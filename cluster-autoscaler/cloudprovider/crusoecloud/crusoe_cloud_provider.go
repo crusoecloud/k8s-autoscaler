@@ -18,6 +18,7 @@ package crusoecloud
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -178,10 +179,10 @@ func BuildCrusoeCloud(
 	do cloudprovider.NodeGroupDiscoveryOptions,
 	rl *cloudprovider.ResourceLimiter,
 ) cloudprovider.CloudProvider {
-	var configFile *os.File
-	var err error
+	var configFile io.ReadCloser
 
 	if opts.CloudConfig != "" {
+		var err error
 		configFile, err = os.Open(opts.CloudConfig)
 		if err != nil {
 			klog.Fatalf("Could not open cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
