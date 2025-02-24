@@ -148,7 +148,7 @@ spec:
           envFrom:
             - secretRef:
                 name: crusoe-secrets
-          image: ghcr.io/crusoecloud/cluster-autoscaler-crusoecloud:{{ ca_version e.g. 1.30.3-crusoe.0 }}
+          image: ghcr.io/crusoecloud/cluster-autoscaler-crusoecloud:{{ ca_version e.g. 1.30.3-crusoe.3 }}
           imagePullPolicy: Always
           name: cluster-autoscaler
           resources:
