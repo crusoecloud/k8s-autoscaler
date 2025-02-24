@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - crusoe-cluster-autoscaler-release-**
+    paths-ignore:
+      - '!cluster-autoscaler/**'
+      - '!cluster-autoscaler/cloudprovider/**'
+      - '!cluster-autoscaler/cloudprovider/crusoecloud/**'
+      - 'cluster-autoscaler/cloudprovider/crusoecloud/README.md'
+      - 'cluster-autoscaler/cloudprovider/crusoecloud/examples/**'
 
 permissions:
   contents: write
