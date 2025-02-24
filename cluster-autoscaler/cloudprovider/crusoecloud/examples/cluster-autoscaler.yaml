@@ -144,6 +144,7 @@ spec:
             - --namespace=crusoe-system
             - --logtostderr=true
             - --cloud-provider=crusoecloud
+            - '--cloud-config=""'
             - --nodes=<min>:<max>:<nodepool>
           envFrom:
             - secretRef:
