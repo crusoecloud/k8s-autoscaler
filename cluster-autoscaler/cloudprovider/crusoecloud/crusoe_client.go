@@ -40,6 +40,7 @@ const (
 
 	stateRunning  = "STATE_RUNNING"
 	stateDeleting = "STATE_DELETING"
+	stateDeleted  = "STATE_DELETED"
 )
 
 // AuthenticatingTransport is a struct implementing http.Roundtripper

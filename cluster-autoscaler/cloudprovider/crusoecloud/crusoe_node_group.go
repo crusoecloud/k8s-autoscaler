@@ -96,19 +96,23 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	ctx := context.Background()
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
 	}
 
 	op, err = ng.manager.WaitForNodePoolOperationComplete(ctx, op)
 	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return fmt.Errorf("couldn't increase pool size to %d: %w", targetSize, err)
 	}
 	if op.State == string(opFailed) {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to set target nodepool size to %d: operation failed with %v", ng.pool.Id, targetSize, op.Result)
 		return fmt.Errorf("couldn't increase pool size to %d: operation failed with %v", targetSize, op.Result)
 	}
 
 	newPool, err := ng.manager.GetNodePool(ctx, ng.pool.Id)
 	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to fetch updated nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return fmt.Errorf("couldn't fetch updated pool: %w (should be ok after refresh)", err)
 	}
 	ng.pool = newPool
@@ -136,7 +140,7 @@ func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) e
 			klog.Errorf("Refresh failed for nodepool %s: %s", ng.pool.Id, err)
 			return err
 		}
-		klog.V(4).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
+		klog.V(6).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
 			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
 
 		for _, instance := range instances {
@@ -167,12 +171,13 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 
 	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
 	}
 
 	ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
 	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		klog.Errorf("DeleteNodes,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
 	}
 	if ngOp.State == string(opFailed) {
@@ -229,16 +234,17 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 	ctx := context.Background()
 	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
 	}
 
 	ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
 	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
 	}
 	if ngOp.State == string(opFailed) {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, ngOp.Result)
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed to set target nodepool size to %d: operation failed with %v", ng.pool.Id, targetSize, ngOp.Result)
 		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
 	}
 
@@ -288,7 +294,11 @@ func (ng *crusoeNodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, err
 // theoretical node group from the real one.
 func (ng *crusoeNodeGroup) Exist() bool {
 	resp, err := ng.manager.GetNodePool(context.Background(), ng.pool.Id)
-	return err == nil && resp != nil && resp.Id != "" && resp.State == stateRunning
+	if err != nil {
+		klog.Errorf("NodeGroup:Exist,PoolID=%s, failed trying to get nodepool: %v", ng.pool.Id, err)
+	}
+	return err == nil && resp != nil && resp.Id != "" &&
+		resp.State != stateDeleted && resp.State != stateDeleting
 }
 
 // Pool Autoprovision feature is not supported by Crusoe cloud yet

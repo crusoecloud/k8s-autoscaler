@@ -208,7 +208,7 @@ func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.Kubern
 
 	pools := make([]crusoeapi.KubernetesNodePool, 0, len(resp.Items))
 	for _, pool := range resp.Items {
-		if pool.State == stateRunning {
+		if pool.State != stateDeleted && pool.State != stateDeleting {
 			pools = append(pools, pool)
 		}
 	}
