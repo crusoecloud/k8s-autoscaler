@@ -302,7 +302,7 @@ func (mgr *crusoeManager) getInstanceTypeDetail(ctx context.Context, instanceTyp
 		}
 	}
 
-	return nil, nil
+	return nil, fmt.Errorf("instance type %s doesn't exist from get vm types response", instanceType)
 }
 
 func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodePool *crusoeapi.KubernetesNodePool) (*apiv1.Node, error) {
@@ -312,7 +312,6 @@ func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodeP
 	}
 
 	node := apiv1.Node{}
-	//nodeName := fmt.Sprintf("%s-asg-%d", asg.Name, rand.Int63())
 	nodeName := ""
 
 	node.ObjectMeta = metav1.ObjectMeta{
