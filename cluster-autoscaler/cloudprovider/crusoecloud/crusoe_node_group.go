@@ -78,11 +78,16 @@ func (ng *crusoeNodeGroup) TargetSize() (int, error) {
 // to explicitly name it and use DeleteNode. This function should wait until
 // node group size is updated.
 func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
-	klog.V(4).Infof("IncreaseSize,ClusterID=%s,delta=%d", ng.pool.ClusterId, delta)
+	ctx := context.Background()
 
 	if delta <= 0 {
 		return fmt.Errorf("delta must be strictly positive, have: %d", delta)
 	}
+
+	ng.updateMutex.Lock()
+	defer ng.updateMutex.Unlock()
+
+	klog.V(4).Infof("IncreaseSize (delta = %d) for node pool with id %s", delta, ng.pool.ClusterId)
 
 	targetSize := ng.pool.Count + int64(delta)
 	if targetSize > int64(ng.MaxSize()) {
@@ -90,16 +95,22 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 			ng.pool.Count, targetSize, ng.MaxSize())
 	}
 
-	ng.updateMutex.Lock()
-	defer ng.updateMutex.Unlock()
+	err := ng.refresh()
+	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to refresh node group before attempting to increase size: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group before attempting to increase size: %v", err)
+	}
+	if targetSize < ng.pool.Count {
+		klog.Errorf("IncreaseSize,PoolID=%s, aborting IncreaseSize. "+
+			"Current node pool count on Crusoe Cloud already exceeds node group's target size", ng.Id())
+		return nil
+	}
 
-	ctx := context.Background()
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
 	}
-
 	op, err = ng.manager.WaitForNodePoolOperationComplete(ctx, op)
 	if err != nil {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
@@ -110,18 +121,12 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return fmt.Errorf("couldn't increase pool size to %d: operation failed with %v", targetSize, op.Result)
 	}
 
-	newPool, err := ng.manager.GetNodePool(ctx, ng.pool.Id)
+	err = ng.refresh()
 	if err != nil {
-		klog.Errorf("IncreaseSize,PoolID=%s, failed to fetch updated nodepool size to %d: %v", ng.pool.Id, targetSize, err)
-		return fmt.Errorf("couldn't fetch updated pool: %w (should be ok after refresh)", err)
-	}
-	ng.pool = newPool
-	err = ng.refreshNodes(ctx, newPool.InstanceIds)
-	if err != nil {
-		return fmt.Errorf("couldn't fetch updated nodes: %w (should be ok after refresh)", err)
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to refresh node group after increase size: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group after increase size: %v", err)
 	}
 
-	ng.pool.Count = targetSize
 	return nil
 }
 
@@ -163,11 +168,27 @@ func (ng *crusoeNodeGroup) AtomicIncreaseSize(delta int) error {
 func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 
-	targetSize := ng.pool.Count - int64(len(nodes))
-	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
-
 	ng.updateMutex.Lock()
 	defer ng.updateMutex.Unlock()
+
+	err := ng.refresh()
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to refresh node group before attempting to delete nodes: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group before attempting to delete nodes: %v", err)
+	}
+
+	nodeIDsToDelete := []string{}
+	for _, n := range nodes {
+		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
+		if !ok {
+			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
+			continue
+		}
+
+		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
+	}
+	targetSize := max(ng.pool.Count-int64(len(nodeIDsToDelete)), 0)
+	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
 
 	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
@@ -185,24 +206,15 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
 	}
 
-	vmOps := make([]*crusoeapi.Operation, 0, len(nodes))
-	for _, n := range nodes {
-		node, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
-		if !ok {
-			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
-			continue
-		}
-
-		op, err := ng.manager.DeleteVMInstance(ctx, node.Id)
+	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
+	for _, id := range nodeIDsToDelete {
+		op, err := ng.manager.DeleteVMInstance(ctx, id)
 		if err != nil {
 			klog.Errorf("DeleteNodes,failed to delete node %s: %s",
-				node.Id, err)
+				id, err)
 			return err
 		}
 		vmOps = append(vmOps, op)
-
-		ng.pool.Count--
-		ng.nodes[toNodeID(n.Spec.ProviderID)].State = "SHUTDOWN"
 	}
 
 	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
@@ -210,6 +222,13 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		klog.Errorf("DeleteNodes,failed to delete one or more nodes: %v", err)
 		return fmt.Errorf("VM operation(s) failed: %w", err)
 	}
+
+	err = ng.refresh()
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to refresh node group after delete nodes: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group after delete nodes: %v", err)
+	}
+
 	return nil
 }
 
@@ -225,10 +244,27 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 		return fmt.Errorf("delta must be strictly negative, have: %d", delta)
 	}
 
+	ng.updateMutex.Lock()
+	defer ng.updateMutex.Unlock()
+
+	klog.V(4).Infof("DecreaseTargetSize (delta = %d) for node pool with id %s", delta, ng.pool.ClusterId)
+
 	targetSize := ng.pool.Count + int64(delta)
 	if int(targetSize) < ng.MinSize() {
 		return fmt.Errorf("size decrease is too large. current: %d desired: %d min: %d",
 			ng.pool.Count, targetSize, ng.MinSize())
+	}
+
+	err := ng.refresh()
+	if err != nil {
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed to refresh node group before attempting to decrease target size: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group before attempting to decrease target size: %v", err)
+	}
+	if targetSize > ng.pool.Count {
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, aborting DecreaseTargetSize. "+
+			"The existing node pool size (%d) is already lower than or equal to the requested target (%d).",
+			ng.Id(), ng.pool.Count, targetSize)
+		return nil
 	}
 
 	ctx := context.Background()
@@ -248,7 +284,12 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
 	}
 
-	ng.pool.Count = targetSize
+	err = ng.refresh()
+	if err != nil {
+		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed to refresh node group after delete nodes: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group after delete nodes: %v", err)
+	}
+
 	return nil
 }
 
@@ -287,7 +328,14 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 // capacity and allocatable information as well as all pods that are started on
 // the node by default, using manifest (most likely only kube-proxy).
 func (ng *crusoeNodeGroup) TemplateNodeInfo() (*schedulerframework.NodeInfo, error) {
-	return nil, cloudprovider.ErrNotImplemented
+	node, err := ng.manager.buildTemplateNodeFromNodePool(context.Background(), ng.pool)
+	if err != nil {
+		klog.Errorf("Failed to construct template node info for node group %s: %v", ng.pool.Id, err)
+	}
+
+	nodeInfo := schedulerframework.NewNodeInfo(cloudprovider.BuildKubeProxy(ng.pool.Name))
+	nodeInfo.SetNode(node)
+	return nodeInfo, nil
 }
 
 // Exist checks if the node group really exists on the cloud provider side. Allows to tell the
@@ -360,4 +408,20 @@ func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
 	}
 
 	return st
+}
+
+func (ng *crusoeNodeGroup) refresh() error {
+	ctx := context.Background()
+
+	currentPool, err := ng.manager.GetNodePool(ctx, ng.pool.Id)
+	if err != nil {
+		return fmt.Errorf("couldn't fetch node pool with id %s: %w", ng.pool.Id, err)
+	}
+	ng.pool = currentPool
+	err = ng.refreshNodes(ctx, currentPool.InstanceIds)
+	if err != nil {
+		return fmt.Errorf("couldn't refresh instances for node pool with id %s: %w", ng.pool.Id, err)
+	}
+
+	return nil
 }
