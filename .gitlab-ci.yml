@@ -43,15 +43,18 @@ pages:
 
 build_and_push_image:
   stage: build
-  image: crazymax/golang-docker:1.22
   services:
     - docker:20.10.24-dind
   variables:
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN registry.gitlab.com
-    - apk add --no-cache make bash
     - chmod +x cluster-autoscaler/push_image.sh
+    # download docker because to the image as it is required by the cluster-autoscaler make commands
+    - apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
+    - curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+    - apt-get update && apt-get install -y docker-ce-cli
   script:
     - cd cluster-autoscaler
     - make build-arch-amd64
