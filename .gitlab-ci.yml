@@ -59,7 +59,7 @@ build_and_push_image:
   script:
     - cd cluster-autoscaler
     - make build-arch-amd64
-    - export IMAGE=registry.gitlab.com/crusoeenergy/island/k8s-autoscaler/cluster-autoscaler
+    - export REGISTRY=registry.gitlab.com/crusoeenergy/island/k8s-autoscaler
     - export TAG=$CI_COMMIT_REF_NAME
     - export ALL_ARCH="amd64"
     - make make-image-arch-amd64
