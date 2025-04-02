@@ -68,7 +68,7 @@ build_and_push_image:
       # Authenticate to the GitLab container registry
       docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" registry.gitlab.com
   script:
-      - |
+    - |
       set -eux
       cd "$SUBPROJECT_PATH"
 
