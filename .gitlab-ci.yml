@@ -68,7 +68,7 @@ build_and_push_image:
       # Authenticate to the GitLab container registry
       docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" registry.gitlab.com
   script:
-    - |
+      - |
       set -eux
       cd "$SUBPROJECT_PATH"
 
@@ -76,9 +76,9 @@ build_and_push_image:
       make build-arch-amd64
 
       # Set registry info and target tag
-      'export REGISTRY="$AUTOSCALER_REGISTRY"'
-      'export TAG="$CI_COMMIT_REF_NAME"'
-      'export ALL_ARCH="$ALL_ARCH"'
+      export REGISTRY="$AUTOSCALER_REGISTRY"
+      export TAG="$CI_COMMIT_REF_NAME"
+      export ALL_ARCH="$ALL_ARCH"
 
       # Build, then push manifest
       make make-image-arch-amd64
