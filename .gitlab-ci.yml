@@ -8,9 +8,9 @@ variables:
   SUBPROJECT_PATH: cluster-autoscaler/
   SUBPROJECT_REL_PATH: ./cluster-autoscaler
 
-stages:
-  - test
-  - build
+# stages:
+#   - test
+#   - build
 
 test_and_lint:
   rules:
