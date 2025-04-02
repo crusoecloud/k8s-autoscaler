@@ -12,6 +12,11 @@ variables:
 #   - test
 #   - build
 
+default:
+  tags:
+    # to unblock build in case Crusoe's gitlab-runner is unavailable
+    - gitlab-runner-gcp
+
 test_and_lint:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH !~ /^crusoe-cluster-autoscaler-/'
@@ -38,13 +43,15 @@ pages:
 
 build_and_push_image:
   stage: build
+  image: docker:20.10.24-dind
   services:
-    - docker:dind
+    - docker:20.10.24-dind
   variables:
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN registry.gitlab.com
   script:
+    - apk add --no-cache make
     - cd cluster-autoscaler
     - export TAG=$CI_COMMIT_REF_NAME
     - 'echo "Docker tag: $TAG"'
