@@ -7,6 +7,11 @@ variables:
   SUBPROJECT: cluster-autoscaler
   SUBPROJECT_PATH: cluster-autoscaler/
   SUBPROJECT_REL_PATH: ./cluster-autoscaler
+
+stages:
+  - test
+  - build
+
 test_and_lint:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH !~ /^crusoe-cluster-autoscaler-/'
@@ -33,7 +38,6 @@ pages:
 
 build_and_push_image:
   stage: build
-  image: docker:latest
   services:
     - docker:dind
   variables:
@@ -51,9 +55,3 @@ build_and_push_image:
     - if: '$CI_MERGE_REQUEST_ID'
       when: always
 
-debug_build_stage:
-  stage: build
-  script:
-    - echo "I'm running to prove the build stage works!"
-  rules:
-    - when: always
