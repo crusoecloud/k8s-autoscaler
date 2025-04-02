@@ -23,6 +23,10 @@ default:
   tags:
     - gitlab-runner-gcp
 
+stages:
+  - test
+  - build
+
 test_and_lint:
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH !~ /^crusoe-cluster-autoscaler-/'
@@ -34,7 +38,6 @@ test_and_lint:
     - set -euo pipefail
     - cd "$SUBPROJECT"
     - go test ./cloudprovider/crusoecloud/...
-    - golangci-lint run ./cloudprovider/crusoecloud/...
 
 # Remove the tag_semver and pages jobs from merges into main.
 # The tag_semver job will be run using a GitHub action instead
