@@ -43,7 +43,7 @@ pages:
 
 build_and_push_image:
   stage: build
-  image: golang:1.22
+  image: crazymax/golang-docker:1.22
   services:
     - docker:20.10.24-dind
   variables:
