@@ -50,12 +50,14 @@ build_and_push_image:
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN registry.gitlab.com
+    - apk add --no-cache make bash
+    - chmod +x cluster-autoscaler/push_image.sh
   script:
     - apk add --no-cache make
     - cd cluster-autoscaler
     - export TAG=$CI_COMMIT_REF_NAME
-    - 'echo "Docker tag: $TAG"'
-    - 'yes | make release'
+    - export ALL_ARCH="amd64"
+    - make execute-release
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: always
