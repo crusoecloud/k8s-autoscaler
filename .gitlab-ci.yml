@@ -63,7 +63,7 @@ build_and_push_image:
     - export TAG=$CI_COMMIT_REF_NAME
     - export ALL_ARCH="amd64"
     - make make-image-arch-amd64
-    - yes | make push-image-arch-amd64
+    - yes | make push-image-arch-amd64 || true
     - make push-manifest
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
