@@ -3,18 +3,24 @@ include:
     file: '/templates/go.gitlab-ci.yml'
 
 variables:
-  CI_IMAGE: registry.gitlab.com/crusoeenergy/tools/go-ci-1.22
-  SUBPROJECT: cluster-autoscaler
-  SUBPROJECT_PATH: cluster-autoscaler/
-  SUBPROJECT_REL_PATH: ./cluster-autoscaler
+  CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.22"
+  SUBPROJECT: "cluster-autoscaler"
+  SUBPROJECT_PATH: "cluster-autoscaler/"
+  SUBPROJECT_REL_PATH: "./cluster-autoscaler"
+  REGISTRY: "registry.gitlab.com/crusoeenergy/island/external/k8s-autoscaler"
+  # we only need amd64 to run autoscaler on C1A VMs
+  ALL_ARCH: "amd64"
 
-# stages:
-#   - test
-#   - build
+  # Docker config
+  DOCKER_VERSION: "20.10.24-dind"
+  DOCKER_CLI_PACKAGE: "docker-ce-cli"
+  DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
+  DOCKER_GPG_KEY: "/usr/share/keyrings/docker-archive-keyring.gpg"
+  DOCKER_APT_SOURCE: "/etc/apt/sources.list.d/docker.list"
 
 default:
+  # Use GCP runner to unblock builds if Crusoe’s runner is unavailable.
   tags:
-    # to unblock build in case Crusoe's gitlab-runner is unavailable
     - gitlab-runner-gcp
 
 test_and_lint:
@@ -23,7 +29,6 @@ test_and_lint:
       changes: !reference [.code-changes, changes]
     - if: '$CI_MERGE_REQUEST_ID'
       changes: !reference [.code-changes, changes]
-    # don't run CI for semver tags, do run it for custom tags
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^crusoe-cluster-autoscaler-release-[0-9]+\.[0-9]+\.[0-9]+.+/'
 
 # Remove the tag_semver and pages jobs from merges into main.
@@ -41,31 +46,45 @@ pages:
   rules:
     - when: never
 
+# Build and push Docker images to the Gitlab registry for internal testing.
 build_and_push_image:
   stage: build
   services:
-    - docker:20.10.24-dind
+    # Docker-in-Docker to support building images in CI.
+    - "docker:${DOCKER_VERSION}"
   variables:
     DOCKER_TLS_CERTDIR: ""
   before_script:
-    - chmod +x cluster-autoscaler/push_image.sh
-    # download docker because to the image as it is required by the cluster-autoscaler make commands
-    - apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
-    - curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-    - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bullseye stable" > /etc/apt/sources.list.d/docker.list
-    - apt-get update && apt-get install -y docker-ce-cli
-    # authenticate to gitlab with crusoe's pipeline job token
-    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN registry.gitlab.com
+    - |
+      set -eux
+      chmod +x "$SUBPROJECT_PATH/push_image.sh"
+
+      # Install Docker CLI for building/pushing images
+      apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
+      curl -fsSL "$DOCKER_REPO_URL/gpg" | gpg --dearmor -o "$DOCKER_GPG_KEY"
+      echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO_URL} bullseye stable" > "$DOCKER_APT_SOURCE"
+      apt-get update && apt-get install -y "$DOCKER_CLI_PACKAGE"
+
+      # Authenticate to the GitLab container registry
+      docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" registry.gitlab.com
   script:
-    - cd cluster-autoscaler
-    - make build-arch-amd64
-    - export REGISTRY=registry.gitlab.com/crusoeenergy/island/external/k8s-autoscaler
-    - export TAG=$CI_COMMIT_REF_NAME
-    - export ALL_ARCH="amd64"
-    - make make-image-arch-amd64
-    - yes | make push-image-arch-amd64 || true
-    - make push-manifest
+      - |
+      set -eux
+      cd "$SUBPROJECT_PATH"
+
+      # Build for amd64 architecture
+      make build-arch-amd64
+
+      # Set registry info and target tag
+      export REGISTRY="$AUTOSCALER_REGISTRY"
+      export TAG="$CI_COMMIT_REF_NAME"
+      export ALL_ARCH="$ALL_ARCH"
+
+      # Build, then push manifest
+      make make-image-arch-amd64
+      yes | make push-image-arch-amd64 || true
   rules:
+    # Always run this job if on default branch or in a merge request.
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       when: always
     - if: '$CI_MERGE_REQUEST_ID'
