@@ -32,7 +32,7 @@ test_and_lint:
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^crusoe-cluster-autoscaler-release-[0-9]+\.[0-9]+\.[0-9]+.+/'
   script:
     - set -euo pipefail
-    - cd "$SUBPROJECT_PATH"
+    - cd "$SUBPROJECT"
     - go test ./crusoecloud/...
     - golangci-lint run ./crusoecloud/...
 
