@@ -155,7 +155,9 @@ func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) e
 			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
 
 		for _, instance := range instances {
-			newNodes[instance.Id] = &instance
+			if instance.State != stateDeleted && instance.State != stateDeleting {
+				newNodes[instance.Id] = &instance
+			}
 		}
 	}
 
