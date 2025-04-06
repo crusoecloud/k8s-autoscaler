@@ -71,7 +71,10 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
-	return int(ng.pool.Count), nil
+	if int(ng.pool.Count) > len(ng.pool.InstanceIds) {
+		return int(ng.pool.Count), nil
+	}
+	return len(ng.pool.InstanceIds), nil
 }
 
 // IncreaseSize increases the size of the node group. To delete a node you need
@@ -169,7 +172,12 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 
 	ng.updateMutex.Lock()
-	defer ng.updateMutex.Unlock()
+	mutexUnlocked := false
+	defer func() {
+		if !mutexUnlocked {
+			ng.updateMutex.Unlock()
+		}
+	}()
 
 	err := ng.refresh()
 	if err != nil {
@@ -187,24 +195,29 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
 	}
-	targetSize := max(ng.pool.Count-int64(len(nodeIDsToDelete)), 0)
+
+	targetSize := len(ng.pool.InstanceIds) - len(nodeIDsToDelete)
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
+	if targetSize < int(ng.pool.Count) {
+		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, int64(targetSize))
+		if err != nil {
+			klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+			return err
+		}
 
-	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
-	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
-		return err
+		ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
+		if err != nil {
+			klog.Errorf("DeleteNodes,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+			return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
+		}
+		if ngOp.State == string(opFailed) {
+			klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, ngOp.Result)
+			return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
+		}
 	}
 
-	ngOp, err = ng.manager.WaitForNodePoolOperationComplete(ctx, ngOp)
-	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
-		return fmt.Errorf("couldn't decrease pool size to %d: %w", targetSize, err)
-	}
-	if ngOp.State == string(opFailed) {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed to set target nodepool size to %d: %v", ng.pool.Id, targetSize, ngOp.Result)
-		return fmt.Errorf("couldn't decrease pool size to %d: operation failed with %v", targetSize, ngOp.Result)
-	}
+	mutexUnlocked = true
+	ng.updateMutex.Unlock()
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
 	for _, id := range nodeIDsToDelete {
