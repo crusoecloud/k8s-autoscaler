@@ -71,10 +71,13 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
-	if int(ng.pool.Count) > len(ng.pool.InstanceIds) {
-		return int(ng.pool.Count), nil
-	}
-	return len(ng.pool.InstanceIds), nil
+	targetSize := max(int(ng.pool.Count), len(ng.pool.InstanceIds))
+	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
+		"where node pool current desired count is %d and contains %d nodes",
+		ng.pool.Id, targetSize, ng.pool.Count, len(ng.pool.InstanceIds),
+	)
+
+	return targetSize, nil
 }
 
 // IncreaseSize increases the size of the node group. To delete a node you need
