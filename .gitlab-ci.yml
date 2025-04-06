@@ -90,7 +90,7 @@ build_and_push_image:
 
       # Build, then push manifest
       make make-image-arch-amd64
-      yes | make push-image-arch-amd64 || true
+      docker push "$REGISTRY/cluster-autoscaler-amd64:$TAG"
   rules:
     # Always run this job if on default branch or in a merge request.
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
