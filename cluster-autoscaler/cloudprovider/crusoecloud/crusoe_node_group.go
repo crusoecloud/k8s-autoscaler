@@ -73,6 +73,9 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
+	ng.updateMutex.Lock()
+	defer ng.updateMutex.Unlock()
+
 	targetSize := max(int(ng.pool.Count), ng.calculateActiveNodesFromCache())
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool current desired count is %d and contains %d nodes",
@@ -462,8 +465,10 @@ func (ng *crusoeNodeGroup) calculateActiveNodesFromCache() int {
 	activeNodeCount := 0
 	for i, _ := range ng.nodes {
 		// do not count nodes where deletion request is already sent
-		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; !ok {
-			klog.V(4).Infof("Found node with id %s in deletion in prgoress node set", ng.nodes[i].Id)
+		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; ok {
+			klog.V(4).Infof("Found node with id %s in deletion in progress node set", ng.nodes[i].Id)
+		} else {
+			klog.V(4).Infof("Node with id %s is not in deletion in progress node set", ng.nodes[i].Id)
 			activeNodeCount++
 		}
 	}
