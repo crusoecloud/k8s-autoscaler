@@ -43,11 +43,13 @@ const (
 // NodePool, which is a set of nodes that have the same capacity and set of labels.
 type crusoeNodeGroup struct {
 	manager *crusoeManager
-	pool    *crusoeapi.KubernetesNodePool
-	nodes   map[string]*crusoeapi.InstanceV1Alpha5
-	spec    *dynamic.NodeGroupSpec
 
-	updateMutex sync.Mutex
+	pool                      *crusoeapi.KubernetesNodePool
+	updateMutex               sync.Mutex
+	nodes                     map[string]*crusoeapi.InstanceV1Alpha5
+	deletionInProgressNodeSet map[string]struct{}
+
+	spec *dynamic.NodeGroupSpec
 }
 
 // MaxSize returns maximum size of the node group.
@@ -71,7 +73,7 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
-	targetSize := max(int(ng.pool.Count), len(ng.pool.InstanceIds))
+	targetSize := max(int(ng.pool.Count), ng.calculateActiveNodesFromCache())
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool current desired count is %d and contains %d nodes",
 		ng.pool.Id, targetSize, ng.pool.Count, len(ng.pool.InstanceIds),
@@ -136,35 +138,6 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	return nil
 }
 
-func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) error {
-	ng.pool.InstanceIds = nodeIds
-	newNodes := make(map[string]*crusoeapi.InstanceV1Alpha5)
-
-	for i := 0; i < len(nodeIds); i += instanceBatchSize {
-		end := i + instanceBatchSize
-		if end > len(nodeIds) {
-			end = len(nodeIds)
-		}
-
-		instances, err := ng.manager.ListVMInstances(ctx, nodeIds[i:end])
-		if err != nil {
-			klog.Errorf("Refresh failed for nodepool %s: %s", ng.pool.Id, err)
-			return err
-		}
-		klog.V(6).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
-			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
-
-		for _, instance := range instances {
-			if instance.State != stateDeleted && instance.State != stateDeleting {
-				newNodes[instance.Id] = &instance
-			}
-		}
-	}
-
-	ng.nodes = newNodes
-	return nil
-}
-
 // AtomicIncreaseSize is not implemented.
 func (ng *crusoeNodeGroup) AtomicIncreaseSize(delta int) error {
 	return cloudprovider.ErrNotImplemented
@@ -177,9 +150,9 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 
 	ng.updateMutex.Lock()
-	mutexUnlocked := false
+	updateMutexUnlocked := false
 	defer func() {
-		if !mutexUnlocked {
+		if !updateMutexUnlocked {
 			ng.updateMutex.Unlock()
 		}
 	}()
@@ -201,7 +174,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
 	}
 
-	targetSize := len(ng.pool.InstanceIds) - len(nodeIDsToDelete)
+	targetSize := max(ng.calculateActiveNodesFromCache()-len(nodeIDsToDelete), int(ng.pool.Count))
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
 	if targetSize < int(ng.pool.Count) {
 		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, int64(targetSize))
@@ -221,9 +194,6 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		}
 	}
 
-	mutexUnlocked = true
-	ng.updateMutex.Unlock()
-
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
 	for _, id := range nodeIDsToDelete {
 		op, err := ng.manager.DeleteVMInstance(ctx, id)
@@ -232,8 +202,13 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 				id, err)
 			return err
 		}
+		ng.addNodeToDeletionInProgressSet(id)
+		defer ng.removeNodeFromDeletionInProgressSet(id)
 		vmOps = append(vmOps, op)
 	}
+
+	updateMutexUnlocked = true
+	ng.updateMutex.Unlock()
 
 	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
 	if err != nil {
@@ -442,4 +417,53 @@ func (ng *crusoeNodeGroup) refresh() error {
 	}
 
 	return nil
+}
+
+func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) error {
+	ng.pool.InstanceIds = nodeIds
+	newNodes := make(map[string]*crusoeapi.InstanceV1Alpha5)
+
+	for i := 0; i < len(nodeIds); i += instanceBatchSize {
+		end := i + instanceBatchSize
+		if end > len(nodeIds) {
+			end = len(nodeIds)
+		}
+
+		instances, err := ng.manager.ListVMInstances(ctx, nodeIds[i:end])
+		if err != nil {
+			klog.Errorf("Refresh failed for nodepool %s: %s", ng.pool.Id, err)
+			return err
+		}
+		klog.V(6).Infof("Refresh,ProjectID=%s,ClusterID=%s,NodepoolID=%s ListInstances returns %d->%d IDs",
+			ng.pool.ProjectId, ng.pool.ClusterId, ng.pool.Id, len(nodeIds), len(instances))
+
+		for _, instance := range instances {
+			if instance.State != stateDeleted && instance.State != stateDeleting {
+				newNodes[instance.Id] = &instance
+			}
+		}
+	}
+
+	ng.nodes = newNodes
+	return nil
+}
+
+func (ng *crusoeNodeGroup) addNodeToDeletionInProgressSet(nodeID string) {
+	ng.deletionInProgressNodeSet[nodeID] = struct{}{}
+}
+
+func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
+	delete(ng.deletionInProgressNodeSet, nodeID)
+}
+
+func (ng *crusoeNodeGroup) calculateActiveNodesFromCache() int {
+	activeNodeCount := 0
+	for i, _ := range ng.nodes {
+		// do not count nodes where deletion request is already sent
+		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; !ok {
+			activeNodeCount++
+		}
+	}
+
+	return activeNodeCount
 }
