@@ -449,10 +449,12 @@ func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) e
 }
 
 func (ng *crusoeNodeGroup) addNodeToDeletionInProgressSet(nodeID string) {
+	klog.V(4).Infof("Adding node with id %s to deletion in progress set", nodeID)
 	ng.deletionInProgressNodeSet[nodeID] = struct{}{}
 }
 
 func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
+	klog.V(4).Infof("Removing node with id %s from deletion in progress set", nodeID)
 	delete(ng.deletionInProgressNodeSet, nodeID)
 }
 
@@ -461,6 +463,7 @@ func (ng *crusoeNodeGroup) calculateActiveNodesFromCache() int {
 	for i, _ := range ng.nodes {
 		// do not count nodes where deletion request is already sent
 		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; !ok {
+			klog.V(4).Infof("Found node with id %s in deletion in prgoress node set", ng.nodes[i].Id)
 			activeNodeCount++
 		}
 	}
