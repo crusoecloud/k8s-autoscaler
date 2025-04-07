@@ -210,6 +210,12 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		vmOps = append(vmOps, op)
 	}
 
+	err = ng.refresh()
+	if err != nil {
+		klog.Errorf("DeleteNodes,PoolID=%s, failed to refresh node group after delete nodes: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group after delete nodes: %v", err)
+	}
+
 	updateMutexUnlocked = true
 	ng.updateMutex.Unlock()
 
@@ -217,12 +223,6 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	if err != nil {
 		klog.Errorf("DeleteNodes,failed to delete one or more nodes: %v", err)
 		return fmt.Errorf("VM operation(s) failed: %w", err)
-	}
-
-	err = ng.refresh()
-	if err != nil {
-		klog.Errorf("DeleteNodes,PoolID=%s, failed to refresh node group after delete nodes: %v", ng.pool.Id, err)
-		return fmt.Errorf("failed to refresh node group after delete nodes: %v", err)
 	}
 
 	return nil

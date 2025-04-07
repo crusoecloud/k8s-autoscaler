@@ -189,6 +189,10 @@ func (mgr *crusoeManager) Refresh() error {
 		mgr.projectID, mgr.clusterID, len(pools))
 
 	var ngs []*crusoeNodeGroup
+	cachedPoolIDToNodeGroupsMap := map[string]*crusoeNodeGroup{}
+	for _, ng := range mgr.nodeGroups {
+		cachedPoolIDToNodeGroupsMap[ng.pool.Id] = ng
+	}
 
 	for _, p := range pools {
 		// just in case
@@ -205,7 +209,9 @@ func (mgr *crusoeManager) Refresh() error {
 			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
 		}
 		ng.refreshNodes(ctx, p.InstanceIds)
-		if ng.deletionInProgressNodeSet == nil {
+		if _, ok := cachedPoolIDToNodeGroupsMap[ng.pool.Id]; ok {
+			ng.deletionInProgressNodeSet = cachedPoolIDToNodeGroupsMap[ng.pool.Id].deletionInProgressNodeSet
+		} else {
 			ng.deletionInProgressNodeSet = map[string]struct{}{}
 		}
 		ngs = append(ngs, &ng)
