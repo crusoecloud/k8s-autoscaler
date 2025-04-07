@@ -78,8 +78,8 @@ func (ng *crusoeNodeGroup) TargetSize() (int, error) {
 
 	targetSize := max(int(ng.pool.Count), ng.calculateActiveNodesFromCache())
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
-		"where node pool current desired count is %d and contains %d nodes",
-		ng.pool.Id, targetSize, ng.pool.Count, len(ng.pool.InstanceIds),
+		"where node pool's current desired count is %d and it contains %d active nodes",
+		ng.pool.Id, targetSize, ng.pool.Count, ng.calculateActiveNodesFromCache(),
 	)
 
 	return targetSize, nil
@@ -179,7 +179,14 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 
 	targetSize := min(ng.calculateActiveNodesFromCache()-len(nodeIDsToDelete), int(ng.pool.Count))
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
-	if targetSize < int(ng.pool.Count) {
+	if targetSize > int(ng.pool.Count) {
+		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than desired count (%d), skip updating desired count",
+			ng.pool.Id, targetSize, ng.pool.Count,
+		)
+	} else {
+		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) lower than desired count (%d), setting desired count to match target size",
+			ng.pool.Id, targetSize, ng.pool.Count,
+		)
 		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, int64(targetSize))
 		if err != nil {
 			klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
@@ -468,7 +475,6 @@ func (ng *crusoeNodeGroup) calculateActiveNodesFromCache() int {
 		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; ok {
 			klog.V(4).Infof("Found node with id %s in deletion in progress node set", ng.nodes[i].Id)
 		} else {
-			klog.V(4).Infof("Node with id %s is not in deletion in progress node set", ng.nodes[i].Id)
 			activeNodeCount++
 		}
 	}
