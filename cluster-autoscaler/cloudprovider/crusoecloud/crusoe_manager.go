@@ -205,6 +205,9 @@ func (mgr *crusoeManager) Refresh() error {
 			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
 		}
 		ng.refreshNodes(ctx, p.InstanceIds)
+		if ng.deletionInProgressNodeSet == nil {
+			ng.deletionInProgressNodeSet = map[string]struct{}{}
+		}
 		ngs = append(ngs, &ng)
 	}
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
