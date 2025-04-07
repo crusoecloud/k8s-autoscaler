@@ -174,7 +174,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
 	}
 
-	targetSize := max(ng.calculateActiveNodesFromCache()-len(nodeIDsToDelete), int(ng.pool.Count))
+	targetSize := min(ng.calculateActiveNodesFromCache()-len(nodeIDsToDelete), int(ng.pool.Count))
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
 	if targetSize < int(ng.pool.Count) {
 		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, int64(targetSize))
