@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
+	"go.uber.org/multierr"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
@@ -73,9 +74,6 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
-	ng.updateMutex.Lock()
-	defer ng.updateMutex.Unlock()
-
 	targetSize := max(int(ng.pool.Count), ng.calculateActiveNodesFromCache())
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool's current desired count is %d and it contains %d active nodes",
@@ -171,7 +169,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
-			continue
+			return fmt.Errorf("failed to find node %s (id=%s) in the node group's nodes cache", n.Name, toNodeID(n.Spec.ProviderID))
 		}
 
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
@@ -204,13 +202,18 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		}
 	}
 
+	// group errors onward into a multiErr to try to wait until vm operation(s) complete before removing
+	// nodes from the deletion in progress set
+	var multiErr error
+
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
 	for _, id := range nodeIDsToDelete {
 		op, err := ng.manager.DeleteVMInstance(ctx, id)
 		if err != nil {
-			klog.Errorf("DeleteNodes,failed to delete node %s: %s",
-				id, err)
-			return err
+			klog.Errorf("DeleteNodes,PoolID=%s, failed to delete node %s: %v",
+				ng.pool.Id, id, err)
+			multiErr = multierr.Append(multiErr, fmt.Errorf("failed to delete node %s: %v", id, err))
+			continue
 		}
 		ng.addNodeToDeletionInProgressSet(id)
 		defer ng.removeNodeFromDeletionInProgressSet(id)
@@ -220,7 +223,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	err = ng.refresh()
 	if err != nil {
 		klog.Errorf("DeleteNodes,PoolID=%s, failed to refresh node group after delete nodes: %v", ng.pool.Id, err)
-		return fmt.Errorf("failed to refresh node group after delete nodes: %v", err)
+		multiErr = multierr.Append(multiErr, fmt.Errorf("failed to refresh node group after delete nodes: %v", err))
 	}
 
 	updateMutexUnlocked = true
@@ -229,10 +232,10 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
 	if err != nil {
 		klog.Errorf("DeleteNodes,failed to delete one or more nodes: %v", err)
-		return fmt.Errorf("VM operation(s) failed: %w", err)
+		multiErr = multierr.Append(multiErr, fmt.Errorf("failed to wait for all vm operations or some operations failed: %v", err))
 	}
 
-	return nil
+	return multiErr
 }
 
 // DecreaseTargetSize decreases the target size of the node group. This function

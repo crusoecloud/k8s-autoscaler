@@ -513,7 +513,7 @@ func TestNodeGroup_DeleteNodesNonExistent_Success(t *testing.T) {
 			httpSuccessResponse(), nil).Once()
 
 	err := ng.DeleteNodes(nodes)
-	assert.NoError(t, err)
+	assert.Error(t, err)
 }
 
 func TestNodeGroup_ExistRunning(t *testing.T) {

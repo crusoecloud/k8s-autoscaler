@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
@@ -48,6 +49,8 @@ const (
 	nodeLabelGPUKey       = crusoePrefix + "accelerator"
 
 	gpuProductLinePrefixesNvidia = "ahl"
+
+	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
 )
 
 type crusoeCloudConfig struct {
@@ -116,6 +119,10 @@ type crusoeManager struct {
 	nodeGroupSpecs map[string]*dynamic.NodeGroupSpec
 	// Current set of node groups
 	nodeGroups []*crusoeNodeGroup
+	// map from instance type to its detail
+	instanceTypeDetailMap map[string]*crusoeInstanceTypeDetail
+	// cool down before crusoeManager can fetch new instance type detail
+	instanceTypeRefreshLastRefresh time.Time
 }
 
 func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDiscoveryOptions, userAgent string) (*crusoeManager, error) {
@@ -161,7 +168,8 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 	}
 
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, userAgent)
-	return &crusoeManager{
+
+	manager := &crusoeManager{
 		nodePoolsApi:   client.KubernetesNodePoolsApi,
 		nodePoolOpsApi: client.KubernetesNodePoolOperationsApi,
 		vmApi:          client.VMsApi,
@@ -171,7 +179,15 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 		clusterID:      cfg.ClusterID,
 		nodeGroupSpecs: ngSpecs,
 		nodeGroups:     []*crusoeNodeGroup{},
-	}, nil
+	}
+
+	instanceTypeDetailMap, err := manager.getInstanceTypeDetailMap(context.Background())
+	if err != nil {
+		klog.Errorf("failed to get instance type detail for crusoeManager, autoscaler may not be able to fetch node info to build template: %v", err)
+	}
+	manager.instanceTypeDetailMap = instanceTypeDetailMap
+
+	return manager, nil
 }
 
 func (mgr *crusoeManager) NodeGroups() []*crusoeNodeGroup {
@@ -293,31 +309,38 @@ func (mgr *crusoeManager) WaitForNodePoolOperationComplete(ctx context.Context, 
 	})
 }
 
-func (mgr *crusoeManager) getInstanceTypeDetail(ctx context.Context, instanceType string) (*crusoeInstanceTypeDetail, error) {
+func (mgr *crusoeManager) getInstanceTypeDetailMap(ctx context.Context) (map[string]*crusoeInstanceTypeDetail, error) {
+	instanceTypeDetailMap := map[string]*crusoeInstanceTypeDetail{}
+
 	typeResp, _, err := mgr.vmApi.GetVMTypes(ctx, mgr.projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list instance types: %w", err)
 	}
+	mgr.instanceTypeRefreshLastRefresh = time.Now()
 
 	for i := range typeResp.Items {
-		if typeResp.Items[i].ProductName == instanceType {
-			return &crusoeInstanceTypeDetail{
-				ProductName: typeResp.Items[i].ProductName,
-				CpuCores:    typeResp.Items[i].CpuCores,
-				CpuType:     typeResp.Items[i].CpuType,
-				NumGpu:      typeResp.Items[i].NumGpu,
-				MemoryGb:    typeResp.Items[i].MemoryGb,
-			}, nil
+		instanceTypeDetailMap[typeResp.Items[i].ProductName] = &crusoeInstanceTypeDetail{
+			ProductName: typeResp.Items[i].ProductName,
+			CpuCores:    typeResp.Items[i].CpuCores,
+			CpuType:     typeResp.Items[i].CpuType,
+			NumGpu:      typeResp.Items[i].NumGpu,
+			MemoryGb:    typeResp.Items[i].MemoryGb,
 		}
 	}
 
-	return nil, fmt.Errorf("instance type %s doesn't exist from get vm types response", instanceType)
+	return instanceTypeDetailMap, nil
 }
 
 func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodePool *crusoeapi.KubernetesNodePool) (*apiv1.Node, error) {
-	instanceTypeDetail, err := m.getInstanceTypeDetail(ctx, nodePool.Type_)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instance type detail for instance type %s: %w", nodePool.Type_, err)
+	instanceTypeDetail, ok := m.instanceTypeDetailMap[nodePool.Type_]
+	if !ok {
+		if time.Since(m.instanceTypeRefreshLastRefresh) >= instanceTypeDetailRefreshCoolDown {
+			instanceTypeDetailMap, err := m.getInstanceTypeDetailMap(ctx)
+			if err != nil {
+				return nil, err
+			}
+			m.instanceTypeDetailMap = instanceTypeDetailMap
+		}
 	}
 
 	node := apiv1.Node{}
