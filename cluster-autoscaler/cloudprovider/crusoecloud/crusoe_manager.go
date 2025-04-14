@@ -218,19 +218,21 @@ func (mgr *crusoeManager) Refresh() error {
 			continue
 		}
 
-		ng := crusoeNodeGroup{
-			manager: mgr,
-			pool:    &p,
-			nodes:   make(map[string]*crusoeapi.InstanceV1Alpha5),
-			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
-		}
-		ng.refreshNodes(ctx, p.InstanceIds)
-		if _, ok := cachedPoolIDToNodeGroupsMap[ng.pool.Id]; ok {
-			ng.deletionInProgressNodeSet = cachedPoolIDToNodeGroupsMap[ng.pool.Id].deletionInProgressNodeSet
+		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
+			cachedNg.refresh()
+			ngs = append(ngs, cachedNg)
 		} else {
-			ng.deletionInProgressNodeSet = map[string]struct{}{}
+			ng := crusoeNodeGroup{
+				manager:                   mgr,
+				pool:                      &p,
+				nodes:                     make(map[string]*crusoeapi.InstanceV1Alpha5),
+				deletionInProgressNodeSet: map[string]struct{}{},
+
+				spec: mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
+			}
+			// refresh to populate nodes and target size information
+			ng.refresh()
 		}
-		ngs = append(ngs, &ng)
 	}
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
 
@@ -332,15 +334,17 @@ func (mgr *crusoeManager) getInstanceTypeDetailMap(ctx context.Context) (map[str
 }
 
 func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodePool *crusoeapi.KubernetesNodePool) (*apiv1.Node, error) {
+	if time.Since(m.instanceTypeRefreshLastRefresh) >= instanceTypeDetailRefreshCoolDown {
+		instanceTypeDetailMap, err := m.getInstanceTypeDetailMap(ctx)
+		if err != nil {
+			return nil, err
+		}
+		m.instanceTypeDetailMap = instanceTypeDetailMap
+	}
+
 	instanceTypeDetail, ok := m.instanceTypeDetailMap[nodePool.Type_]
 	if !ok {
-		if time.Since(m.instanceTypeRefreshLastRefresh) >= instanceTypeDetailRefreshCoolDown {
-			instanceTypeDetailMap, err := m.getInstanceTypeDetailMap(ctx)
-			if err != nil {
-				return nil, err
-			}
-			m.instanceTypeDetailMap = instanceTypeDetailMap
-		}
+		return nil, fmt.Errorf("instance type %s not found in instance type detail map", nodePool.Type_)
 	}
 
 	node := apiv1.Node{}

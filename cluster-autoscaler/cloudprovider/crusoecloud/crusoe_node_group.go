@@ -46,9 +46,12 @@ type crusoeNodeGroup struct {
 	manager *crusoeManager
 
 	pool                      *crusoeapi.KubernetesNodePool
-	updateMutex               sync.Mutex
+	nodeGroupRWMutex          sync.RWMutex
 	nodes                     map[string]*crusoeapi.InstanceV1Alpha5
 	deletionInProgressNodeSet map[string]struct{}
+	targetSize                int
+
+	scalingMutex sync.Mutex
 
 	spec *dynamic.NodeGroupSpec
 }
@@ -74,13 +77,7 @@ func (ng *crusoeNodeGroup) MinSize() int {
 // to Size() once everything stabilizes (new nodes finish startup and registration or
 // removed nodes are deleted completely).
 func (ng *crusoeNodeGroup) TargetSize() (int, error) {
-	targetSize := max(int(ng.pool.Count), ng.calculateActiveNodesFromCache())
-	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
-		"where node pool's current desired count is %d and it contains %d active nodes",
-		ng.pool.Id, targetSize, ng.pool.Count, ng.calculateActiveNodesFromCache(),
-	)
-
-	return targetSize, nil
+	return ng.targetSize, nil
 }
 
 // IncreaseSize increases the size of the node group. To delete a node you need
@@ -93,15 +90,15 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return fmt.Errorf("delta must be strictly positive, have: %d", delta)
 	}
 
-	ng.updateMutex.Lock()
-	defer ng.updateMutex.Unlock()
+	ng.scalingMutex.Lock()
+	defer ng.scalingMutex.Unlock()
 
 	klog.V(4).Infof("IncreaseSize (delta = %d) for node pool with id %s", delta, ng.pool.ClusterId)
 
-	targetSize := ng.pool.Count + int64(delta)
+	targetSize := int64(ng.targetSize + delta)
 	if targetSize > int64(ng.MaxSize()) {
 		return fmt.Errorf("size increase is too large. current: %d desired: %d max: %d",
-			ng.pool.Count, targetSize, ng.MaxSize())
+			ng.targetSize, targetSize, ng.MaxSize())
 	}
 
 	err := ng.refresh()
@@ -150,11 +147,11 @@ func (ng *crusoeNodeGroup) AtomicIncreaseSize(delta int) error {
 func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ctx := context.Background()
 
-	ng.updateMutex.Lock()
-	updateMutexUnlocked := false
+	ng.scalingMutex.Lock()
+	scalingMutexUnlocked := false
 	defer func() {
-		if !updateMutexUnlocked {
-			ng.updateMutex.Unlock()
+		if !scalingMutexUnlocked {
+			ng.scalingMutex.Unlock()
 		}
 	}()
 
@@ -165,6 +162,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	}
 
 	nodeIDsToDelete := []string{}
+	ng.nodeGroupRWMutex.RLock()
 	for _, n := range nodes {
 		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
 		if !ok {
@@ -174,11 +172,12 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
 	}
+	ng.nodeGroupRWMutex.RUnlock()
 
-	targetSize := min(ng.calculateActiveNodesFromCache()-len(nodeIDsToDelete), int(ng.pool.Count))
+	targetSize := min(ng.targetSize-len(nodeIDsToDelete), int(ng.pool.Count))
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
-	if targetSize > int(ng.pool.Count) {
-		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than desired count (%d), skip updating desired count",
+	if targetSize >= int(ng.pool.Count) {
+		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than or equal to the desired count (%d), skip updating desired count",
 			ng.pool.Id, targetSize, ng.pool.Count,
 		)
 	} else {
@@ -226,8 +225,8 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		multiErr = multierr.Append(multiErr, fmt.Errorf("failed to refresh node group after delete nodes: %v", err))
 	}
 
-	updateMutexUnlocked = true
-	ng.updateMutex.Unlock()
+	scalingMutexUnlocked = true
+	ng.scalingMutex.Unlock()
 
 	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
 	if err != nil {
@@ -250,15 +249,15 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 		return fmt.Errorf("delta must be strictly negative, have: %d", delta)
 	}
 
-	ng.updateMutex.Lock()
-	defer ng.updateMutex.Unlock()
+	ng.scalingMutex.Lock()
+	defer ng.scalingMutex.Unlock()
 
 	klog.V(4).Infof("DecreaseTargetSize (delta = %d) for node pool with id %s", delta, ng.pool.ClusterId)
 
-	targetSize := ng.pool.Count + int64(delta)
+	targetSize := int64(ng.targetSize + delta)
 	if int(targetSize) < ng.MinSize() {
 		return fmt.Errorf("size decrease is too large. current: %d desired: %d min: %d",
-			ng.pool.Count, targetSize, ng.MinSize())
+			ng.targetSize, targetSize, ng.MinSize())
 	}
 
 	err := ng.refresh()
@@ -306,7 +305,7 @@ func (ng *crusoeNodeGroup) Id() string {
 
 // Debug returns a string containing all information regarding this node group.
 func (ng *crusoeNodeGroup) Debug() string {
-	return fmt.Sprintf("node group %s: min=%d max=%d target=%d", ng.Id(), ng.MinSize(), ng.MaxSize(), ng.pool.Count)
+	return fmt.Sprintf("node group %s: min=%d max=%d target=%d", ng.Id(), ng.MinSize(), ng.MaxSize(), ng.targetSize)
 }
 
 // Nodes returns a list of all nodes that belong to this node group.  It is
@@ -418,21 +417,25 @@ func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
 
 func (ng *crusoeNodeGroup) refresh() error {
 	ctx := context.Background()
+	ng.nodeGroupRWMutex.Lock()
+	defer ng.nodeGroupRWMutex.Unlock()
 
 	currentPool, err := ng.manager.GetNodePool(ctx, ng.pool.Id)
 	if err != nil {
 		return fmt.Errorf("couldn't fetch node pool with id %s: %w", ng.pool.Id, err)
 	}
 	ng.pool = currentPool
-	err = ng.refreshNodes(ctx, currentPool.InstanceIds)
+	err = ng.refreshNodesLocked(ctx, currentPool.InstanceIds)
 	if err != nil {
 		return fmt.Errorf("couldn't refresh instances for node pool with id %s: %w", ng.pool.Id, err)
 	}
+	ng.setTargetSizeLocked()
 
 	return nil
 }
 
-func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) error {
+// refreshNodesLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
+func (ng *crusoeNodeGroup) refreshNodesLocked(ctx context.Context, nodeIds []string) error {
 	ng.pool.InstanceIds = nodeIds
 	newNodes := make(map[string]*crusoeapi.InstanceV1Alpha5)
 
@@ -462,16 +465,36 @@ func (ng *crusoeNodeGroup) refreshNodes(ctx context.Context, nodeIds []string) e
 }
 
 func (ng *crusoeNodeGroup) addNodeToDeletionInProgressSet(nodeID string) {
+	ng.nodeGroupRWMutex.Lock()
+	defer ng.nodeGroupRWMutex.Unlock()
+
 	klog.V(4).Infof("Adding node with id %s to deletion in progress set", nodeID)
 	ng.deletionInProgressNodeSet[nodeID] = struct{}{}
+	ng.setTargetSizeLocked()
 }
 
 func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
+	ng.nodeGroupRWMutex.Lock()
+	defer ng.nodeGroupRWMutex.Unlock()
+
 	klog.V(4).Infof("Removing node with id %s from deletion in progress set", nodeID)
 	delete(ng.deletionInProgressNodeSet, nodeID)
+	ng.setTargetSizeLocked()
 }
 
-func (ng *crusoeNodeGroup) calculateActiveNodesFromCache() int {
+// setTragetSizeLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
+func (ng *crusoeNodeGroup) setTargetSizeLocked() {
+	activeNodes := ng.calculateActiveNodesFromCacheLocked()
+	ng.targetSize = max(int(ng.pool.Count), activeNodes)
+	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
+		"where node pool's current desired count is %d and it contains %d active nodes",
+		ng.pool.Id, ng.targetSize, ng.pool.Count, activeNodes,
+	)
+
+}
+
+// calculateActiveNodesFromCacheLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
+func (ng *crusoeNodeGroup) calculateActiveNodesFromCacheLocked() int {
 	activeNodeCount := 0
 	for i, _ := range ng.nodes {
 		// do not count nodes where deletion request is already sent

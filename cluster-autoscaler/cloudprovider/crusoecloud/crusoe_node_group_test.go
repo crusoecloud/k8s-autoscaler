@@ -446,7 +446,7 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	assert.Equal(t, int64(0), ng.pool.Count)
 }
 
-func TestNodeGroup_DeleteNodesNonExistent_Success(t *testing.T) {
+func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 	ctx := context.Background()
 	nodeCount := 1
 	delta := -1
