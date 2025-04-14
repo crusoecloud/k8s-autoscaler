@@ -41,6 +41,7 @@ func testNodeGroupWithMocks(count int) (*crusoeNodeGroup, *crusoeMocks) {
 		spec:                      testNodeSpec(),
 		nodes:                     map[string]*crusoeapi.InstanceV1Alpha5{},
 		deletionInProgressNodeSet: map[string]struct{}{},
+		targetSize:                count,
 	}, mocks
 }
 

@@ -100,18 +100,6 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return fmt.Errorf("size increase is too large. current: %d desired: %d max: %d",
 			ng.targetSize, targetSize, ng.MaxSize())
 	}
-
-	err := ng.refresh()
-	if err != nil {
-		klog.Errorf("IncreaseSize,PoolID=%s, failed to refresh node group before attempting to increase size: %v", ng.pool.Id, err)
-		return fmt.Errorf("failed to refresh node group before attempting to increase size: %v", err)
-	}
-	if targetSize < ng.pool.Count {
-		klog.Errorf("IncreaseSize,PoolID=%s, aborting IncreaseSize. "+
-			"Current node pool count on Crusoe Cloud already exceeds node group's target size", ng.Id())
-		return nil
-	}
-
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
@@ -258,18 +246,6 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 	if int(targetSize) < ng.MinSize() {
 		return fmt.Errorf("size decrease is too large. current: %d desired: %d min: %d",
 			ng.targetSize, targetSize, ng.MinSize())
-	}
-
-	err := ng.refresh()
-	if err != nil {
-		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed to refresh node group before attempting to decrease target size: %v", ng.pool.Id, err)
-		return fmt.Errorf("failed to refresh node group before attempting to decrease target size: %v", err)
-	}
-	if targetSize > ng.pool.Count {
-		klog.Errorf("DecreaseTargetSize,PoolID=%s, aborting DecreaseTargetSize. "+
-			"The existing node pool size (%d) is already lower than or equal to the requested target (%d).",
-			ng.Id(), ng.pool.Count, targetSize)
-		return nil
 	}
 
 	ctx := context.Background()
