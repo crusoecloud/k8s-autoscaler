@@ -109,7 +109,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		klog.Errorf("IncreaseSize,PoolID=%s, aborting IncreaseSize. "+
 			"Current node pool count on Crusoe Cloud already exceeds node group's target size", ng.Id())
 		return nil
-
+	}
 
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
@@ -273,7 +273,6 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 		return nil
 	}
 
-	
 	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
 	if err != nil {
 		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
