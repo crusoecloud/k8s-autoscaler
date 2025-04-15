@@ -232,6 +232,7 @@ func (mgr *crusoeManager) Refresh() error {
 			}
 			// refresh to populate nodes and target size information
 			ng.refresh()
+			ngs = append(ngs, &ng)
 		}
 	}
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
