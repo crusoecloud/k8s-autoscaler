@@ -100,6 +100,11 @@ func (c *crusoeVMServiceMock) ListInstances(ctx context.Context, projectId strin
 	return args.Get(0).(crusoeapi.ListInstancesResponseV1Alpha5), args.Get(1).(*http.Response), args.Error(2)
 }
 
+func (c *crusoeVMServiceMock) GetVMTypes(ctx context.Context, projectId string) (crusoeapi.ListTypesResponseV1Alpha5, *http.Response, error) {
+	args := c.Called(ctx, projectId)
+	return args.Get(0).(crusoeapi.ListTypesResponseV1Alpha5), args.Get(1).(*http.Response), args.Error(2)
+}
+
 type crusoeVMOperationServiceMock struct {
 	mock.Mock
 }
