@@ -24,19 +24,33 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 
 	"k8s.io/klog/v2"
 
+	apiv1 "k8s.io/api/core/v1"
+	resource "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 )
 
 const (
 	defaultApiEndpoint   = "https://api.crusoecloud.com/v1alpha5"
 	scaleToZeroSupported = true
+
+	crusoePrefix          = "crusoe.ai/"
+	nodeLabelInstanceKey  = crusoePrefix + "instance.class"
+	nodeLabelProjectIDKey = crusoePrefix + "project.id"
+	nodeLabelGPUKey       = crusoePrefix + "accelerator"
+
+	gpuProductLinePrefixesNvidia = "ahl"
+
+	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
 )
 
 type crusoeCloudConfig struct {
@@ -50,6 +64,14 @@ type crusoeCloudConfig struct {
 	ProjectID string `json:"project_id"`
 	// ClusterID is the CMK cluster id where the Autoscaler is running.
 	ClusterID string `json:"cluster_id"`
+}
+
+type crusoeInstanceTypeDetail struct {
+	ProductName string `json:"product_name"`
+	CpuCores    int64  `json:"cpu_cores"`
+	CpuType     string `json:"cpu_type"`
+	NumGpu      int64  `json:"num_gpu"`
+	MemoryGb    int64  `json:"memory_gb"`
 }
 
 func readConf(config *crusoeCloudConfig, configFile io.Reader) error {
@@ -74,6 +96,7 @@ type crusoeK8sNodePoolOperationService interface {
 type crusoeVMService interface {
 	DeleteInstance(ctx context.Context, projectId string, vmId string) (crusoeapi.AsyncOperationResponse, *http.Response, error)
 	ListInstances(ctx context.Context, projectId string, localVarOptionals *crusoeapi.VMsApiListInstancesOpts) (crusoeapi.ListInstancesResponseV1Alpha5, *http.Response, error)
+	GetVMTypes(ctx context.Context, projectId string) (crusoeapi.ListTypesResponseV1Alpha5, *http.Response, error)
 }
 
 type crusoeVMOperationService interface {
@@ -96,6 +119,10 @@ type crusoeManager struct {
 	nodeGroupSpecs map[string]*dynamic.NodeGroupSpec
 	// Current set of node groups
 	nodeGroups []*crusoeNodeGroup
+	// map from instance type to its detail
+	instanceTypeDetailMap map[string]*crusoeInstanceTypeDetail
+	// cool down before crusoeManager can fetch new instance type detail
+	instanceTypeRefreshLastRefresh time.Time
 }
 
 func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDiscoveryOptions, userAgent string) (*crusoeManager, error) {
@@ -141,7 +168,8 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 	}
 
 	client := NewAPIClient(cfg.APIEndpoint, cfg.AccessKey, cfg.SecretKey, userAgent)
-	return &crusoeManager{
+
+	manager := &crusoeManager{
 		nodePoolsApi:   client.KubernetesNodePoolsApi,
 		nodePoolOpsApi: client.KubernetesNodePoolOperationsApi,
 		vmApi:          client.VMsApi,
@@ -151,7 +179,15 @@ func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDisco
 		clusterID:      cfg.ClusterID,
 		nodeGroupSpecs: ngSpecs,
 		nodeGroups:     []*crusoeNodeGroup{},
-	}, nil
+	}
+
+	instanceTypeDetailMap, err := manager.getInstanceTypeDetailMap(context.Background())
+	if err != nil {
+		klog.Errorf("failed to get instance type detail for crusoeManager, autoscaler may not be able to fetch node info to build template: %v", err)
+	}
+	manager.instanceTypeDetailMap = instanceTypeDetailMap
+
+	return manager, nil
 }
 
 func (mgr *crusoeManager) NodeGroups() []*crusoeNodeGroup {
@@ -169,6 +205,10 @@ func (mgr *crusoeManager) Refresh() error {
 		mgr.projectID, mgr.clusterID, len(pools))
 
 	var ngs []*crusoeNodeGroup
+	cachedPoolIDToNodeGroupsMap := map[string]*crusoeNodeGroup{}
+	for _, ng := range mgr.nodeGroups {
+		cachedPoolIDToNodeGroupsMap[ng.pool.Id] = ng
+	}
 
 	for _, p := range pools {
 		// just in case
@@ -178,14 +218,22 @@ func (mgr *crusoeManager) Refresh() error {
 			continue
 		}
 
-		ng := crusoeNodeGroup{
-			manager: mgr,
-			pool:    &p,
-			nodes:   make(map[string]*crusoeapi.InstanceV1Alpha5),
-			spec:    mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
+		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
+			cachedNg.refresh()
+			ngs = append(ngs, cachedNg)
+		} else {
+			ng := crusoeNodeGroup{
+				manager:                   mgr,
+				pool:                      &p,
+				nodes:                     make(map[string]*crusoeapi.InstanceV1Alpha5),
+				deletionInProgressNodeSet: map[string]struct{}{},
+
+				spec: mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
+			}
+			// refresh to populate nodes and target size information
+			ng.refresh()
+			ngs = append(ngs, &ng)
 		}
-		ng.refreshNodes(ctx, p.InstanceIds)
-		ngs = append(ngs, &ng)
 	}
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
 
@@ -264,6 +312,70 @@ func (mgr *crusoeManager) WaitForNodePoolOperationComplete(ctx context.Context, 
 	})
 }
 
+func (mgr *crusoeManager) getInstanceTypeDetailMap(ctx context.Context) (map[string]*crusoeInstanceTypeDetail, error) {
+	instanceTypeDetailMap := map[string]*crusoeInstanceTypeDetail{}
+
+	typeResp, _, err := mgr.vmApi.GetVMTypes(ctx, mgr.projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list instance types: %w", err)
+	}
+	mgr.instanceTypeRefreshLastRefresh = time.Now()
+
+	for i := range typeResp.Items {
+		instanceTypeDetailMap[typeResp.Items[i].ProductName] = &crusoeInstanceTypeDetail{
+			ProductName: typeResp.Items[i].ProductName,
+			CpuCores:    typeResp.Items[i].CpuCores,
+			CpuType:     typeResp.Items[i].CpuType,
+			NumGpu:      typeResp.Items[i].NumGpu,
+			MemoryGb:    typeResp.Items[i].MemoryGb,
+		}
+	}
+
+	return instanceTypeDetailMap, nil
+}
+
+func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodePool *crusoeapi.KubernetesNodePool) (*apiv1.Node, error) {
+	if time.Since(m.instanceTypeRefreshLastRefresh) >= instanceTypeDetailRefreshCoolDown {
+		instanceTypeDetailMap, err := m.getInstanceTypeDetailMap(ctx)
+		if err != nil {
+			return nil, err
+		}
+		m.instanceTypeDetailMap = instanceTypeDetailMap
+	}
+
+	instanceTypeDetail, ok := m.instanceTypeDetailMap[nodePool.Type_]
+	if !ok {
+		return nil, fmt.Errorf("instance type %s not found in instance type detail map", nodePool.Type_)
+	}
+
+	node := apiv1.Node{}
+	nodeName := ""
+
+	node.ObjectMeta = metav1.ObjectMeta{
+		Name:     nodeName,
+		SelfLink: fmt.Sprintf("/api/v1/nodes/%s", nodeName),
+		Labels:   map[string]string{},
+	}
+
+	node.Status = apiv1.NodeStatus{
+		Capacity: apiv1.ResourceList{},
+	}
+
+	// TODO: get a real value.
+	node.Status.Capacity[apiv1.ResourcePods] = *resource.NewQuantity(110, resource.DecimalSI)
+	node.Status.Capacity[apiv1.ResourceCPU] = *resource.NewQuantity(instanceTypeDetail.CpuCores, resource.DecimalSI)
+	node.Status.Capacity[gpu.ResourceNvidiaGPU] = *resource.NewQuantity(instanceTypeDetail.NumGpu, resource.DecimalSI)
+	node.Status.Capacity[apiv1.ResourceMemory] = *resource.NewQuantity(instanceTypeDetail.MemoryGb*1024*1024*1024, resource.DecimalSI)
+
+	node.Status.Allocatable = node.Status.Capacity
+
+	node.Labels = cloudprovider.JoinStringMaps(node.Labels, m.buildGenericLabels(instanceTypeDetail, nodePool.NodeLabels))
+
+	node.Status.Conditions = cloudprovider.BuildReadyConditions()
+
+	return &node, nil
+}
+
 func (mgr *crusoeManager) ListVMInstances(ctx context.Context, instanceIds []string) ([]crusoeapi.InstanceV1Alpha5, error) {
 	resp, httpResp, err := mgr.vmApi.ListInstances(ctx, mgr.projectID, &crusoeapi.VMsApiListInstancesOpts{
 		Ids: optional.NewString(strings.Join(instanceIds, ",")),
@@ -312,4 +424,40 @@ func (mgr *crusoeManager) WaitForVMOperationListComplete(ctx context.Context, op
 		}
 		return updatedOp, nil
 	})
+}
+
+func (m *crusoeManager) buildGenericLabels(instanceTypeDetail *crusoeInstanceTypeDetail, nodeLabels map[string]string) map[string]string {
+	result := make(map[string]string)
+
+	result[apiv1.LabelArchStable] = instanceTypeDetail.CpuType
+	result[apiv1.LabelOSStable] = cloudprovider.DefaultOS
+	result[apiv1.LabelInstanceTypeStable] = instanceTypeDetail.ProductName
+
+	// append user provided node labels
+	for k, v := range nodeLabels {
+		result[k] = v
+	}
+
+	// append other default node labels
+	productNameSplitted := strings.Split(instanceTypeDetail.ProductName, ".")
+	if len(productNameSplitted) != 2 {
+		klog.Errorf("unexpected product name format %s when building generic labels", instanceTypeDetail.ProductName)
+	} else {
+		result[nodeLabelInstanceKey] = productNameSplitted[0]
+	}
+	result[nodeLabelProjectIDKey] = m.projectID
+	if gpuLabelValue := gpuLabelValueFromProductLine(productNameSplitted[0]); gpuLabelValue != "" {
+		result[nodeLabelGPUKey] = gpuLabelValue
+	}
+
+	return result
+}
+
+func gpuLabelValueFromProductLine(productLine string) string {
+	// check for starting with the Nvidia prefix letters
+	if strings.IndexByte(gpuProductLinePrefixesNvidia, productLine[0]) != -1 {
+		return "nvidia-" + productLine
+	}
+
+	return ""
 }

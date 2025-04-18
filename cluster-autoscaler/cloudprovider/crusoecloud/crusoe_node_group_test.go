@@ -38,8 +38,10 @@ func testNodeGroupWithMocks(count int) (*crusoeNodeGroup, *crusoeMocks) {
 			ClusterId: testClusterID,
 			Count:     int64(count),
 		},
-		spec:  testNodeSpec(),
-		nodes: map[string]*crusoeapi.InstanceV1Alpha5{},
+		spec:                      testNodeSpec(),
+		nodes:                     map[string]*crusoeapi.InstanceV1Alpha5{},
+		deletionInProgressNodeSet: map[string]struct{}{},
+		targetSize:                count,
 	}, mocks
 }
 
@@ -66,80 +68,125 @@ func TestNodeGroup_TargetSize(t *testing.T) {
 
 func TestNodeGroup_IncreaseSize(t *testing.T) {
 	ctx := context.Background()
-	nodes := 3
+	curNumNodes := 3
 	delta := 2
-	ng, mocks := testNodeGroupWithMocks(nodes)
+	ng, mocks := testNodeGroupWithMocks(curNumNodes)
 
-	newSize := int64(nodes + delta)
-	mocks.nodePoolsApi.On("UpdateNodePool",
-		ctx,
-		crusoeapi.KubernetesNodePoolPatchRequest{
-			Count: newSize,
-		},
-		testProjectID,
-		testNodePoolID,
-	).Return(
-		crusoeapi.AsyncOperationResponse{
-			Operation: &crusoeapi.Operation{
+	newNumNodes := int64(curNumNodes + delta)
+
+	// The first refresh (before we call UpdateNodePool)
+	// plus the second refresh (after the operation completes)
+	// means we expect TWO calls to GetNodePool:
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(curNumNodes), // current count before resize
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(newNumNodes), // current count before resize
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3", "nodeId4", "nodeId5"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// If refresh also calls ListInstances each time to gather node details,
+	// then we expect TWO ListInstances calls, too:
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId1,nodeId2,nodeId3"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{
+					{Id: "nodeId1", Name: "node1", ProjectId: testProjectID},
+					{Id: "nodeId2", Name: "node2", ProjectId: testProjectID},
+					{Id: "nodeId3", Name: "node3", ProjectId: testProjectID},
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId1,nodeId2,nodeId3,nodeId4,nodeId5"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{
+					{Id: "nodeId1", Name: "node1", ProjectId: testProjectID},
+					{Id: "nodeId2", Name: "node2", ProjectId: testProjectID},
+					{Id: "nodeId3", Name: "node3", ProjectId: testProjectID},
+					{Id: "nodeId4", Name: "node4", ProjectId: testProjectID},
+					{Id: "nodeId5", Name: "node5", ProjectId: testProjectID},
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// The actual resize
+	mocks.nodePoolsApi.
+		On("UpdateNodePool",
+			ctx,
+			crusoeapi.KubernetesNodePoolPatchRequest{Count: newNumNodes},
+			testProjectID,
+			testNodePoolID,
+		).
+		Return(
+			crusoeapi.AsyncOperationResponse{
+				Operation: &crusoeapi.Operation{
+					OperationId: "opId",
+					State:       string(opInProgress),
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// Waiting for the resize to finish
+	mocks.nodePoolOpsApi.
+		On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").
+		Return(
+			crusoeapi.Operation{
 				OperationId: "opId",
-				State:       string(opInProgress),
+				State:       string(opSucceeded),
 			},
-		}, httpSuccessResponse(), nil,
-	).Once()
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
 
-	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
-		crusoeapi.Operation{
-			OperationId: "opId",
-			State:       string(opSucceeded),
-		}, httpSuccessResponse(), nil,
-	).Once()
-
-	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
-		crusoeapi.KubernetesNodePool{
-			Id:          testNodePoolID,
-			ProjectId:   testProjectID,
-			ClusterId:   testClusterID,
-			State:       stateRunning,
-			InstanceIds: []string{"nodeId4", "nodeId5"},
-		}, httpSuccessResponse(), nil,
-	).Once()
-	mocks.vmApi.On("ListInstances", ctx, testProjectID,
-		&crusoeapi.VMsApiListInstancesOpts{
-			Ids: optional.NewString("nodeId4,nodeId5"),
-		}).Return(
-		crusoeapi.ListInstancesResponseV1Alpha5{
-			Items: []crusoeapi.InstanceV1Alpha5{
-				{
-					Id:        "nodeId1",
-					Name:      "node1",
-					ProjectId: testProjectID,
-				},
-				{
-					Id:        "nodeId2",
-					Name:      "node2",
-					ProjectId: testProjectID,
-				},
-				{
-					Id:        "nodeId3",
-					Name:      "node3",
-					ProjectId: testProjectID,
-				},
-				{
-					Id:        "nodeId4",
-					Name:      "node4",
-					ProjectId: testProjectID,
-				},
-				{
-					Id:        "nodeId5",
-					Name:      "node5",
-					ProjectId: testProjectID,
-				},
-			},
-		}, httpSuccessResponse(), nil,
-	).Once()
-
+	// Now actually call IncreaseSize:
 	err := ng.IncreaseSize(delta)
 	assert.NoError(t, err)
+
+	// Make sure all expectations were met
+	mocks.nodePoolsApi.AssertExpectations(t)
+	mocks.nodePoolOpsApi.AssertExpectations(t)
+	mocks.vmApi.AssertExpectations(t)
 }
 
 func TestNodeGroup_IncreaseNegativeDelta(t *testing.T) {
@@ -165,6 +212,56 @@ func TestNodeGroup_DecreaseTargetSize(t *testing.T) {
 	nodes := 5
 	delta := -4
 	ng, mocks := testNodeGroupWithMocks(nodes)
+
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(nodes), // current count before resize
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3", "nodeId4", "nodeId5"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(nodes) + int64(delta),
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3", "nodeId4", "nodeId5"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId1,nodeId2,nodeId3,nodeId4,nodeId5"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{
+					{Id: "nodeId1", Name: "node1", ProjectId: testProjectID},
+					{Id: "nodeId2", Name: "node2", ProjectId: testProjectID},
+					{Id: "nodeId3", Name: "node3", ProjectId: testProjectID},
+					{Id: "nodeId4", Name: "node4", ProjectId: testProjectID},
+					{Id: "nodeId5", Name: "node5", ProjectId: testProjectID},
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Twice()
 
 	newSize := int64(nodes + delta)
 	mocks.nodePoolsApi.On("UpdateNodePool",
@@ -224,6 +321,64 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	}
 
 	newSize := int64(nodeCount + delta)
+
+	// The first refresh (before we call UpdateNodePool)
+	// plus the second refresh (after the operation completes)
+	// means we expect TWO calls to GetNodePool:
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:        testNodePoolID,
+				ProjectId: testProjectID,
+				ClusterId: testClusterID,
+				Count:     int64(nodeCount), // current count before resize
+				State:     stateRunning,
+				InstanceIds: []string{
+					"6852824b-e409-4c77-94df-819629d135b9",
+					"84acb1a6-0e14-4j36-8b32-71bf7b328c22",
+					"5c4d832a-d964-4c64-9d53-b9295c206cdd"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       0, // current count before resize
+				State:       stateRunning,
+				InstanceIds: []string{},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// If refresh also calls ListInstances each time to gather node details,
+	// then we expect TWO ListInstances calls, too:
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("6852824b-e409-4c77-94df-819629d135b9,84acb1a6-0e14-4j36-8b32-71bf7b328c22,5c4d832a-d964-4c64-9d53-b9295c206cdd"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{
+					{Id: "6852824b-e409-4c77-94df-819629d135b9", Name: "np-12345-1", ProjectId: testProjectID},
+					{Id: "84acb1a6-0e14-4j36-8b32-71bf7b328c22", Name: "np-12345-2", ProjectId: testProjectID},
+					{Id: "5c4d832a-d964-4c64-9d53-b9295c206cdd", Name: "np-12345-3", ProjectId: testProjectID},
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
@@ -292,7 +447,7 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	assert.Equal(t, int64(0), ng.pool.Count)
 }
 
-func TestNodeGroup_DeleteNodesFail(t *testing.T) {
+func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 	ctx := context.Background()
 	nodeCount := 1
 	delta := -1
@@ -300,6 +455,22 @@ func TestNodeGroup_DeleteNodesFail(t *testing.T) {
 	ng.nodes = map[string]*crusoeapi.InstanceV1Alpha5{
 		"nonexistent-on-provider-side": {Id: "6852824b-e409-4c77-94df-819629d135b9"},
 	}
+
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       0,
+				State:       stateRunning,
+				InstanceIds: []string{},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Twice()
 
 	newSize := int64(nodeCount + delta)
 	mocks.nodePoolsApi.On("UpdateNodePool",
