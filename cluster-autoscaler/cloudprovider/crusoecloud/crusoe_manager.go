@@ -283,6 +283,9 @@ func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, poolID string, tar
 	if err != nil {
 		return nil, fmt.Errorf("failed to update node pool %s for cluster %s: %w", poolID, mgr.clusterID, err)
 	}
+	if httpResp.StatusCode == http.StatusConflict {
+		return nil, fmt.Errorf("%w: %s", cloudprovider.ErrAlreadyExist, "another operation is currently in-progress")
+	}
 	if httpResp.StatusCode >= 400 {
 		return nil, fmt.Errorf("failed to update node pool %s for cluster %s: http error %s",
 			poolID, mgr.clusterID, httpResp.Status)
