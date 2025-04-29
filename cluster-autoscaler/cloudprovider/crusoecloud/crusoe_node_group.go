@@ -212,6 +212,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	var multiErr error
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
+	nodesInDeletionSet := make([]string, len(nodeIDsToDelete))
 	for _, id := range nodeIDsToDelete {
 		op, err := ng.manager.DeleteVMInstance(ctx, id)
 		if err != nil {
@@ -221,8 +222,8 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			continue
 		}
 		ng.addNodeToDeletionInProgressSet(id)
-		defer ng.removeNodeFromDeletionInProgressSet(id)
 		vmOps = append(vmOps, op)
+		nodesInDeletionSet = append(nodesInDeletionSet, id)
 	}
 
 	err = ng.refresh()
@@ -239,6 +240,9 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
 		if err != nil {
 			klog.Errorf("DeleteNodes (background),failed to delete one or more nodes: %v", err)
+		}
+		for _, id := range nodesInDeletionSet {
+			ng.removeNodeFromDeletionInProgressSet(id)
 		}
 	}()
 
