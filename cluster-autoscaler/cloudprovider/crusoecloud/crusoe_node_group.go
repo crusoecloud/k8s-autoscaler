@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	defaultMinNodePoolSize = 0
+	defaultMinNodePoolSize = 1
 	defaultMaxNodePoolSize = 254
 
 	instanceBatchSize = 50 // page instance fetch by this size
