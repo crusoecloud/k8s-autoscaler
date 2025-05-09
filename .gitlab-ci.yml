@@ -100,8 +100,6 @@ build_and_push_image:
 
 hack_test_and_verify:
   stage: test
-  # matches the GA "setup‑go@v2" version in github workflows
-  image: golang:1.22.1-bullseye
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "on"
