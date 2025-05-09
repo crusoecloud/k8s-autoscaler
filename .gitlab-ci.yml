@@ -100,6 +100,8 @@ build_and_push_image:
 
 hack_test_and_verify:
   stage: test
+  # image requires /bin/sh, which is required for GitLab Runner to execute scripts
+  image: golang:1.22.1 
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "on"
@@ -107,11 +109,10 @@ hack_test_and_verify:
   before_script:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends libseccomp-dev
-    # put the source tree where the k8s autoscaler scripts expect it
-    - mkdir -p "$GOPATH/src/k8s.io"
-    - ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
-    - cd "$GOPATH/src/k8s.io/autoscaler"
+    - mkdir -p "$GOPATH/src/k8s.io" && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
   script:
+    - set -euo pipefail
+    - cd "$GOPATH/src/k8s.io/autoscaler"
     - hack/install-verify-tools.sh
     - hack/verify-all.sh -v
     - hack/for-go-proj.sh test
