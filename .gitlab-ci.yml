@@ -106,9 +106,6 @@ test_and_verify:
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "auto"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: always
   before_script:
     - apt-get update -qq
     - apt-get install -y --no-install-recommends libseccomp-dev
@@ -120,4 +117,9 @@ test_and_verify:
     - hack/install-verify-tools.sh
     - hack/verify-all.sh -v
     - hack/for-go-proj.sh test
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: always
+    - if: '$CI_MERGE_REQUEST_ID'
+      when: always
 
