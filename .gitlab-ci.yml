@@ -26,6 +26,7 @@ default:
 stages:
   - test
   - build
+  - verify
 
 test_and_lint:
   rules:
@@ -97,4 +98,26 @@ build_and_push_image:
       when: always
     - if: '$CI_MERGE_REQUEST_ID'
       when: always
+
+test_and_verify:
+  stage: verify
+  # matches the GA "setup‑go@v2" version in github workflows
+  image: golang:1.22.1-bullseye
+  variables:
+    GOPATH: "$CI_PROJECT_DIR/go"
+    GO111MODULE: "auto"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: always
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends libseccomp-dev
+    # put the source tree where the k8s autoscaler scripts expect it
+    - mkdir -p "$GOPATH/src/k8s.io"
+    - ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+    - cd "$GOPATH/src/k8s.io/autoscaler"
+  script:
+    - hack/install-verify-tools.sh
+    - hack/verify-all.sh -v
+    - hack/for-go-proj.sh test
 
