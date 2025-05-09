@@ -26,7 +26,6 @@ default:
 stages:
   - test
   - build
-  - verify
 
 test_and_lint:
   rules:
@@ -99,8 +98,8 @@ build_and_push_image:
     - if: '$CI_MERGE_REQUEST_ID'
       when: always
 
-test_and_verify:
-  stage: verify
+hack_test_and_verify:
+  stage: test
   # matches the GA "setup‑go@v2" version in github workflows
   image: golang:1.22.1-bullseye
   variables:
