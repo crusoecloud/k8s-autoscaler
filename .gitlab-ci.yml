@@ -12,6 +12,7 @@ variables:
   ALL_ARCH: "amd64"
 
   # Docker config
+  DOCKER_HOST: tcp://docker:2375
   DOCKER_VERSION: "20.10.24-dind"
   DOCKER_CLI_PACKAGE: "docker-ce-cli"
   DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
@@ -101,7 +102,7 @@ build_and_push_image:
 hack_test_and_verify:
   stage: test
   services:
-    # Docker-in-Docker to support building images in CI.
+    # Docker-in-Docker to support running Docker in the CI
     - "docker:${DOCKER_VERSION}"
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
@@ -123,7 +124,7 @@ hack_test_and_verify:
 
   script:
     - set -euo pipefail
-    - cd "$GOPATH/src/k8s.io/autoscaler"
+    - cd "$CI_PROJECT_DIR"
     - hack/install-verify-tools.sh
     - hack/verify-all.sh -v
     - hack/for-go-proj.sh test
