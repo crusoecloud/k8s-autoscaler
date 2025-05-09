@@ -100,17 +100,26 @@ build_and_push_image:
 
 hack_test_and_verify:
   stage: test
-
+  services:
+    # Docker-in-Docker to support building images in CI.
+    - "docker:${DOCKER_VERSION}"
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "on"
-
+    DOCKER_TLS_CERTDIR: ""
   before_script:
-    - export PATH="$GOPATH/bin:$PATH"
-    - apt-get update -qq
-    - apt-get install -y --no-install-recommends libseccomp-dev
-    - mkdir -p "$GOPATH/src/k8s.io" \
-      && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+    - |
+        set -eux
+        export PATH="$GOPATH/bin:$PATH"
+
+        # Install Docker CLI for verify-gofmt.sh
+        apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
+        curl -fsSL "$DOCKER_REPO_URL/gpg" | gpg --dearmor -o "$DOCKER_GPG_KEY"
+        echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO_URL} bullseye stable" > "$DOCKER_APT_SOURCE"
+        apt-get update && apt-get install -y "$DOCKER_CLI_PACKAGE" libseccomp-dev
+
+        mkdir -p "$GOPATH/src/k8s.io" \
+        && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
 
   script:
     - set -euo pipefail
