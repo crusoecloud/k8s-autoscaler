@@ -103,10 +103,11 @@ hack_test_and_verify:
   stage: test
   services:
     # Docker-in-Docker to support running Docker in the CI
-    - "docker:${DOCKER_VERSION}"
+    - name: "docker:${DOCKER_VERSION}"
+      alias: docker
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
-    GO111MODULE: "on"
+    GO111MODULE: "auto"
     DOCKER_TLS_CERTDIR: ""
   before_script:
     - |
