@@ -127,3 +127,32 @@ hack_test_and_verify:
     - if: '$CI_MERGE_REQUEST_ID'
       when: always
 
+hack_test_and_verify:
+  stage: test
+  image: golang:1.22.1
+  services:
+    - name: docker:24-dind
+      alias: docker
+  variables:
+    GOPATH: "$CI_PROJECT_DIR/go"
+    GO111MODULE: "auto"
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - apt-get update -qq && apt-get install -y --no-install-recommends curl gnupg libseccomp-dev
+    - export PATH="$GOPATH/bin:$PATH"
+    - mkdir -p "$GOPATH/src/k8s.io" \
+      && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+
+  script:
+    - bash hack/install-verify-tools.sh
+    - bash hack/verify-all.sh -v
+    - bash hack/for-go-proj.sh test
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: always
+    - if: '$CI_MERGE_REQUEST_ID'
+      when: always
+
+
