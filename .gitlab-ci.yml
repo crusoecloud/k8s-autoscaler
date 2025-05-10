@@ -105,6 +105,9 @@ hack_test_and_verify:
   services:
     - name: docker:24-dind
       alias: docker
+      variables:
+          DOCKER_TLS_CERTDIR: ""
+      command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "auto"
@@ -123,6 +126,13 @@ hack_test_and_verify:
 
         mkdir -p "$GOPATH/src/k8s.io" \
         && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+
+    # wait until docker daemon answers
+    - |
+      for i in $(seq 1 15); do
+        docker info && break
+        sleep 2
+      done
 
   script:
     - bash hack/install-verify-tools.sh
