@@ -12,6 +12,7 @@ variables:
   ALL_ARCH: "amd64"
 
   # Docker config
+  DOCKER_HOST: tcp://docker:2375
   DOCKER_VERSION: "20.10.24-dind"
   DOCKER_CLI_PACKAGE: "docker-ce-cli"
   DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
@@ -100,35 +101,6 @@ build_and_push_image:
 
 hack_test_and_verify:
   stage: test
-  image: docker:24.0.5
-  services:
-    - name: docker:24.0.5-dind
-      alias: docker
-  variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
-    GOPATH: "$CI_PROJECT_DIR/go"
-    GO111MODULE: "auto"
-
-  before_script:
-    - apk add --no-cache curl gnupg libseccomp-dev
-    - export PATH="$GOPATH/bin:$PATH"
-    - mkdir -p "$GOPATH/src/k8s.io" \
-      && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
-
-  script:
-    - hack/install-verify-tools.sh
-    - hack/verify-all.sh -v
-    - hack/for-go-proj.sh test
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: always
-    - if: '$CI_MERGE_REQUEST_ID'
-      when: always
-
-hack_test_and_verify:
-  stage: test
   image: golang:1.22.1
   services:
     - name: docker:24-dind
@@ -139,10 +111,18 @@ hack_test_and_verify:
     DOCKER_HOST: "tcp://docker:2375"
     DOCKER_TLS_CERTDIR: ""
   before_script:
-    - apt-get update -qq && apt-get install -y --no-install-recommends curl gnupg libseccomp-dev
-    - export PATH="$GOPATH/bin:$PATH"
-    - mkdir -p "$GOPATH/src/k8s.io" \
-      && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+    - |
+        set -eux
+        export PATH="$GOPATH/bin:$PATH"
+
+        # Install Docker CLI for verify-gofmt.sh
+        apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
+        curl -fsSL "$DOCKER_REPO_URL/gpg" | gpg --dearmor -o "$DOCKER_GPG_KEY"
+        echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO_URL} bullseye stable" > "$DOCKER_APT_SOURCE"
+        apt-get update && apt-get install -y "$DOCKER_CLI_PACKAGE" libseccomp-dev
+
+        mkdir -p "$GOPATH/src/k8s.io" \
+        && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
 
   script:
     - bash hack/install-verify-tools.sh
@@ -154,5 +134,3 @@ hack_test_and_verify:
       when: always
     - if: '$CI_MERGE_REQUEST_ID'
       when: always
-
-
