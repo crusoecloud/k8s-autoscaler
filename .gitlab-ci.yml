@@ -104,6 +104,7 @@ hack_test_and_verify:
     # Docker-in-Docker to support running Docker in the CI
     - name: "docker:20.10.24-dind"
       alias: docker
+    privileged: true
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "auto"
