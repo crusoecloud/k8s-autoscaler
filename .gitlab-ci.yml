@@ -103,7 +103,7 @@ hack_test_and_verify:
   stage: test
   services:
     # Docker-in-Docker to support running Docker in the CI
-    - name: "docker:${DOCKER_VERSION}"
+    - name: "docker:20.10.24-dind"
       alias: docker
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
