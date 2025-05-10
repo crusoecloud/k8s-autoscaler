@@ -100,33 +100,23 @@ build_and_push_image:
 
 hack_test_and_verify:
   stage: test
+  image: docker:24.0.5
   services:
-    # Docker-in-Docker to support running Docker in the CI
-    - name: "docker:20.10.24-dind"
+    - name: docker:24.0.5-dind
       alias: docker
-      privileged: true
   variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "auto"
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_HOST: "tcp://docker:2375"
+
   before_script:
-    - |
-        set -eux
-        export PATH="$GOPATH/bin:$PATH"
-
-        # Install Docker CLI for verify-gofmt.sh
-        apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
-        curl -fsSL "$DOCKER_REPO_URL/gpg" | gpg --dearmor -o "$DOCKER_GPG_KEY"
-        echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO_URL} bullseye stable" > "$DOCKER_APT_SOURCE"
-        apt-get update && apt-get install -y "$DOCKER_CLI_PACKAGE" libseccomp-dev
-
-        mkdir -p "$GOPATH/src/k8s.io" \
-        && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
+    - apk add --no-cache curl gnupg libseccomp-dev
+    - export PATH="$GOPATH/bin:$PATH"
+    - mkdir -p "$GOPATH/src/k8s.io" \
+      && ln -sf "$CI_PROJECT_DIR" "$GOPATH/src/k8s.io/autoscaler"
 
   script:
-    - set -euo pipefail
-    - cd "$CI_PROJECT_DIR"
     - hack/install-verify-tools.sh
     - hack/verify-all.sh -v
     - hack/for-go-proj.sh test
