@@ -12,7 +12,6 @@ variables:
   ALL_ARCH: "amd64"
 
   # Docker config
-  DOCKER_HOST: tcp://docker:2375
   DOCKER_VERSION: "20.10.24-dind"
   DOCKER_CLI_PACKAGE: "docker-ce-cli"
   DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
@@ -105,10 +104,12 @@ hack_test_and_verify:
     # Docker-in-Docker to support running Docker in the CI
     - name: "docker:20.10.24-dind"
       alias: docker
+  privileged: true
   variables:
     GOPATH: "$CI_PROJECT_DIR/go"
     GO111MODULE: "auto"
     DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://docker:2375"
   before_script:
     - |
         set -eux
