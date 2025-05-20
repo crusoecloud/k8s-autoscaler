@@ -486,6 +486,12 @@ func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
 func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	ng.targetSize = max(int(ng.pool.Count), activeNodes)
+	if ng.pool.State == stateUnhealthy {
+		klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
+			"to the number of active nodes: %d", ng.pool.Id, activeNodes)
+		ng.targetSize = activeNodes
+	}
+
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool's current desired count is %d and it contains %d active nodes",
 		ng.pool.Id, ng.targetSize, ng.pool.Count, activeNodes,
