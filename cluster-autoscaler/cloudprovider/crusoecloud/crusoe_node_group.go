@@ -495,15 +495,23 @@ func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
 	ng.setTargetSizeLocked()
 }
 
-// setTragetSizeLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
+// setTargetSizeLocked should only be called when nodeGroupRWMutex is already held by the caller.
+// This method sets the target size of the node group based on the desired node count and current active nodes.
+// If the node pool is marked unhealthy, the target size defaults to the number of active nodes,
+// as the cloud provider will stop trying to fulfill the desired count.
 func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	ng.targetSize = max(int(ng.pool.Count), activeNodes)
+	if ng.pool.State == stateUnhealthy {
+		klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
+			"to the number of active nodes: %d", ng.pool.Id, activeNodes)
+		ng.targetSize = activeNodes
+	}
+
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool's current desired count is %d and it contains %d active nodes",
 		ng.pool.Id, ng.targetSize, ng.pool.Count, activeNodes,
 	)
-
 }
 
 // calculateActiveNodesFromCacheLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
