@@ -32,6 +32,7 @@ import (
 const (
 	operationBackoffIntervalDefault    = 1
 	operationBackoffJitterRangeDefault = 1000
+	operationTimeout                   = 30 * time.Minute
 )
 
 var (
@@ -107,7 +108,19 @@ func (w *waitBackoff) WaitForOperationComplete(ctx context.Context, op *crusoeap
 		return nil, nil
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
 	for op.State == string(opInProgress) {
+		select {
+		case <-ctx.Done():
+			return op, fmt.Errorf(
+				"operation %s did not complete within %v: %w",
+				op.OperationId, operationTimeout, ctx.Err(),
+			)
+		default:
+		}
+
 		updatedOp, err := pollOp(ctx, op.OperationId)
 		if err != nil {
 			return nil, fmt.Errorf("error getting operation with id %s: %w", op.OperationId, err)
