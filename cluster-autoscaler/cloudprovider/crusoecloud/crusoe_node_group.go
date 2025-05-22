@@ -116,23 +116,30 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
 	}
-	op, err = ng.manager.WaitForNodePoolOperationComplete(ctx, op)
-	if err != nil {
-		klog.Errorf("IncreaseSize,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
-		return fmt.Errorf("couldn't increase pool size to %d: %w", targetSize, err)
-	}
-	if op.State == string(opFailed) {
-		klog.Errorf("IncreaseSize,PoolID=%s, failed to set target nodepool size to %d: operation failed with %v", ng.pool.Id, targetSize, op.Result)
-		return fmt.Errorf("couldn't increase pool size to %d: operation failed with %v", targetSize, op.Result)
+
+	refreshErr := ng.refresh()
+	if refreshErr != nil {
+		klog.Errorf("IncreaseSize (background),PoolID=%s, failed to refresh node group: %v", ng.Id(), refreshErr)
 	}
 
-	err = ng.refresh()
-	if err != nil {
-		klog.Errorf("IncreaseSize,PoolID=%s, failed to refresh node group after increase size: %v", ng.pool.Id, err)
-		return fmt.Errorf("failed to refresh node group after increase size: %v", err)
-	}
+	// target size has already updated so waiting for vms to be created can happen asynchronously
+	go ng.trackIncreaseSizeAsync(ng.pool.Id, op)
 
 	return nil
+}
+
+func (ng *crusoeNodeGroup) trackIncreaseSizeAsync(poolID string, op *crusoeapi.Operation) {
+	ctx := context.Background()
+	klog.V(5).Infof("IncreaseSize (background): waiting for opID=%s on poolID=%s", op.OperationId, poolID)
+
+	finalOp, waitErr := ng.manager.WaitForNodePoolOperationComplete(ctx, op)
+	if waitErr != nil {
+		klog.Errorf("IncreaseSize (background),PoolID=%s, failed waiting for opID=%s: %v", poolID, op.OperationId, waitErr)
+	}
+
+	if finalOp.State == string(opFailed) {
+		klog.Errorf("IncreaseSize (background),PoolID=%s, opID=%s failed: %v", poolID, op.OperationId, finalOp.Result)
+	}
 }
 
 // AtomicIncreaseSize is not implemented.
@@ -174,7 +181,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ng.nodeGroupRWMutex.RUnlock()
 
 	targetSize := min(ng.targetSize-len(nodeIDsToDelete), int(ng.pool.Count))
-	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool=%v", len(nodes), targetSize, ng, ng.pool)
+	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool id=%v", len(nodes), targetSize, ng, ng.pool.Id)
 	if targetSize >= int(ng.pool.Count) {
 		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than or equal to the desired count (%d), skip updating desired count",
 			ng.pool.Id, targetSize, ng.pool.Count,
@@ -205,6 +212,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	var multiErr error
 
 	vmOps := make([]*crusoeapi.Operation, 0, len(nodeIDsToDelete))
+	nodesInDeletionSet := make([]string, len(nodeIDsToDelete))
 	for _, id := range nodeIDsToDelete {
 		op, err := ng.manager.DeleteVMInstance(ctx, id)
 		if err != nil {
@@ -214,8 +222,8 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			continue
 		}
 		ng.addNodeToDeletionInProgressSet(id)
-		defer ng.removeNodeFromDeletionInProgressSet(id)
 		vmOps = append(vmOps, op)
+		nodesInDeletionSet = append(nodesInDeletionSet, id)
 	}
 
 	err = ng.refresh()
@@ -227,11 +235,16 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	scalingMutexUnlocked = true
 	ng.scalingMutex.Unlock()
 
-	_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
-	if err != nil {
-		klog.Errorf("DeleteNodes,failed to delete one or more nodes: %v", err)
-		multiErr = multierr.Append(multiErr, fmt.Errorf("failed to wait for all vm operations or some operations failed: %v", err))
-	}
+	go func() {
+		// target size has already updated so waiting for vm operations can happen asynchronously
+		_, err = ng.manager.WaitForVMOperationListComplete(ctx, vmOps)
+		if err != nil {
+			klog.Errorf("DeleteNodes (background),failed to delete one or more nodes: %v", err)
+		}
+		for _, id := range nodesInDeletionSet {
+			ng.removeNodeFromDeletionInProgressSet(id)
+		}
+	}()
 
 	return multiErr
 }
