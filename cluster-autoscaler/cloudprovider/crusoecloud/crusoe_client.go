@@ -38,9 +38,10 @@ const (
 	opInProgress opStatus = "IN_PROGRESS"
 	opFailed     opStatus = "FAILED"
 
-	stateRunning  = "STATE_RUNNING"
-	stateDeleting = "STATE_DELETING"
-	stateDeleted  = "STATE_DELETED"
+	stateRunning   = "STATE_RUNNING"
+	stateDeleting  = "STATE_DELETING"
+	stateDeleted   = "STATE_DELETED"
+	stateUnhealthy = "STATE_UNHEALTHY"
 )
 
 // AuthenticatingTransport is a struct implementing http.Roundtripper
