@@ -1,6 +1,7 @@
 include:
   - project: 'crusoeenergy/tools'
     file: '/templates/go.gitlab-ci.yml'
+    ref: dind-built-in
 
 variables:
   CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.22"
@@ -12,7 +13,6 @@ variables:
   ALL_ARCH: "amd64"
 
   # Docker config
-  DOCKER_VERSION: "20.10.24-dind"
   DOCKER_CLI_PACKAGE: "docker-ce-cli"
   DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
   DOCKER_GPG_KEY: "/usr/share/keyrings/docker-archive-keyring.gpg"
@@ -21,7 +21,7 @@ variables:
 default:
   # Use GCP runner to unblock builds if Crusoe’s runner is unavailable.
   tags:
-    - gitlab-runner-gcp
+    - x86-crusoecloud_build_prod-docker-build
 
 stages:
   - test
@@ -57,9 +57,6 @@ pages:
 # Build and push Docker images to the Gitlab registry for internal testing.
 build_and_push_image:
   stage: build
-  services:
-    # Docker-in-Docker to support building images in CI.
-    - "docker:${DOCKER_VERSION}"
   variables:
     DOCKER_TLS_CERTDIR: ""
   before_script:
