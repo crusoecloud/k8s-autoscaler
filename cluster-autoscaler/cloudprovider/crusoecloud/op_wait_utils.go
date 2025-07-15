@@ -72,12 +72,11 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 		go func(i int, op *crusoeapi.Operation) {
 			defer wg.Done()
 			result, opErr := w.WaitForOperationComplete(ctx, op, pollOp)
-			results[i] = result
 			if opErr != nil {
-				errs[i] = opErr
+				errs = append(errs, opErr)
 			}
-			if results[i] != nil {
-				results[i] = result
+			if result != nil {
+				results = append(results, result)
 			}
 		}(i, op)
 	}
