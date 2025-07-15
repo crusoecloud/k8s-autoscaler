@@ -73,7 +73,12 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 			defer wg.Done()
 			result, opErr := w.WaitForOperationComplete(ctx, op, pollOp)
 			results[i] = result
-			errs[i] = opErr
+			if opErr != nil {
+				errs[i] = opErr
+			}
+			if results[i] != nil {
+				results[i] = result
+			}
 		}(i, op)
 	}
 	wg.Wait()
