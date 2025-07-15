@@ -78,6 +78,7 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 	}
 	wg.Wait()
 
+	// Aggregate errors and failed‑state results, each entry in errs or results can be nil
 	var multiErr error
 	for i, err := range errs {
 		if err != nil {
@@ -85,7 +86,7 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 		}
 	}
 	for i, op := range results {
-		if op.State == string(opFailed) {
+		if op != nil && op.State == string(opFailed) {
 			multiErr = multierr.Append(multiErr, fmt.Errorf("failed to complete operation %d (result %v): %w", i, op.Result, errorOperationDidNotSucceed))
 		}
 	}
