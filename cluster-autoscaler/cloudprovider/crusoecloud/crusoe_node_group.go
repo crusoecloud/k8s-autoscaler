@@ -222,7 +222,11 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			continue
 		}
 		ng.addNodeToDeletionInProgressSet(id)
-		vmOps = append(vmOps, op)
+		if op != nil {
+			vmOps = append(vmOps, op)
+		} else {
+			klog.Errorf("DeleteNodes,PoolID=%s, returned delete operation is nil for instance with id %s", ng.pool.Id, id)
+		}
 		nodesInDeletionSet = append(nodesInDeletionSet, id)
 	}
 
