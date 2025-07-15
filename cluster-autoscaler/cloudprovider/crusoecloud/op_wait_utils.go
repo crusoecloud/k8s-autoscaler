@@ -85,7 +85,7 @@ func (w *waitBackoff) WaitForOperationListComplete(ctx context.Context, ops []*c
 		}
 	}
 	for i, op := range results {
-		if op.State == string(opFailed) {
+		if op != nil && op.State == string(opFailed) {
 			multiErr = multierr.Append(multiErr, fmt.Errorf("failed to complete operation %d (result %v): %w", i, op.Result, errorOperationDidNotSucceed))
 		}
 	}
