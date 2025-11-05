@@ -1,0 +1,77 @@
+name: Crusoe fork release
+
+on:
+  push:
+    branches:
+      - crusoe-cluster-autoscaler-release-**
+    paths-ignore:
+      - '!cluster-autoscaler/**'
+      - '!cluster-autoscaler/cloudprovider/**'
+      - '!cluster-autoscaler/cloudprovider/crusoecloud/**'
+      - 'cluster-autoscaler/cloudprovider/crusoecloud/README.md'
+      - 'cluster-autoscaler/cloudprovider/crusoecloud/examples/**'
+
+permissions:
+  contents: write
+  attestations: write
+  packages: write
+
+jobs:
+  release-tag:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cluster-autoscaler
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Git
+        run: |
+          git config user.name "crusoe-cloud"
+          git config user.email "support@crusoecloud.com"
+
+      - name: Load version from text file
+        working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
+        run: |
+          source version.env
+          echo "UPSTREAM_VERSION=${UPSTREAM_VERSION}" >> $GITHUB_ENV
+
+      - name: Calculate and set new version
+        working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
+        run: |
+          chmod +x ./scripts/tag_crusoe_ver.sh
+          ./scripts/tag_crusoe_ver.sh $UPSTREAM_VERSION ""
+        shell: bash
+
+      - name: Read version and push tag
+        working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
+        run: |
+          source variables.env
+          echo "Calculated version: $RELEASE_VERSION"
+          git tag $RELEASE_VERSION
+          git push origin $RELEASE_VERSION
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Makefile
+        run: |
+          source cloudprovider/crusoecloud/variables.env
+          export TAG
+          echo "Docker tag: $TAG"
+          yes | make release
+        env:
+          # GitHub sets the GITHUB_TOKEN secret automatically.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY: ghcr.io/crusoecloud
+          BUILD_TAGS: crusoecloud
