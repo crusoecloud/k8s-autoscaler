@@ -364,8 +364,13 @@ func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodeP
 	// TODO: get a real value.
 	node.Status.Capacity[apiv1.ResourcePods] = *resource.NewQuantity(110, resource.DecimalSI)
 	node.Status.Capacity[apiv1.ResourceCPU] = *resource.NewQuantity(instanceTypeDetail.CpuCores, resource.DecimalSI)
-	node.Status.Capacity[gpu.ResourceNvidiaGPU] = *resource.NewQuantity(instanceTypeDetail.NumGpu, resource.DecimalSI)
 	node.Status.Capacity[apiv1.ResourceMemory] = *resource.NewQuantity(instanceTypeDetail.MemoryGb*1024*1024*1024, resource.DecimalSI)
+
+	// Set GPU resource based on the GPU node label
+	if instanceTypeDetail.NumGpu > 0 {
+		gpuResourceName := getGPUResourceName(nodePool.NodeLabels)
+		node.Status.Capacity[gpuResourceName] = *resource.NewQuantity(instanceTypeDetail.NumGpu, resource.DecimalSI)
+	}
 
 	node.Status.Allocatable = node.Status.Capacity
 
@@ -433,12 +438,21 @@ func (m *crusoeManager) buildGenericLabels(instanceTypeDetail *crusoeInstanceTyp
 	result[apiv1.LabelOSStable] = cloudprovider.DefaultOS
 	result[apiv1.LabelInstanceTypeStable] = instanceTypeDetail.ProductName
 
-	// append user provided node labels
+	// Merge node labels from the the crusoe nodepool API response
 	for k, v := range nodeLabels {
 		result[k] = v
 	}
 
-	// append other default node labels
+	// Crusoe NodePool creation API adds GPU labels for nodes created after July 15, 2025.
+	// If 'crusoe.ai/accelerator' label is not present, it's an older node and we need to manually add labels
+	if _, found := nodeLabels[nodeLabelGPUKey]; !found {
+		m.addMissingLabels(result, instanceTypeDetail)
+	}
+
+	return result
+}
+
+func (m *crusoeManager) addMissingLabels(result map[string]string, instanceTypeDetail *crusoeInstanceTypeDetail) {
 	productNameSplitted := strings.Split(instanceTypeDetail.ProductName, ".")
 	if len(productNameSplitted) != 2 {
 		klog.Errorf("unexpected product name format %s when building generic labels", instanceTypeDetail.ProductName)
@@ -449,8 +463,6 @@ func (m *crusoeManager) buildGenericLabels(instanceTypeDetail *crusoeInstanceTyp
 	if gpuLabelValue := gpuLabelValueFromProductLine(productNameSplitted[0]); gpuLabelValue != "" {
 		result[nodeLabelGPUKey] = gpuLabelValue
 	}
-
-	return result
 }
 
 func gpuLabelValueFromProductLine(productLine string) string {
@@ -460,4 +472,18 @@ func gpuLabelValueFromProductLine(productLine string) string {
 	}
 
 	return ""
+}
+
+func getGPUResourceName(nodeLabels map[string]string) apiv1.ResourceName {
+	// Nodes created post July 15, 2025 will always have the GPU label
+	if gpuLabel, hasGPULabel := nodeLabels[nodeLabelGPUKey]; hasGPULabel {
+		if strings.HasPrefix(gpuLabel, "amd-") {
+			return gpu.ResourceAMDGPU
+		}
+		if strings.HasPrefix(gpuLabel, "nvidia-") {
+			return gpu.ResourceNvidiaGPU
+		}
+	}
+	// Default to NVIDIA GPU
+	return gpu.ResourceNvidiaGPU
 }

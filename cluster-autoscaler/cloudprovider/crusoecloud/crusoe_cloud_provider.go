@@ -42,7 +42,7 @@ const (
 )
 
 var (
-	// derived from `crusoe compute vms types | tail +3 | cut -f1 -d. | grep -v "^[cs]1" | sort | uniq`
+	// derived from `crusoe compute vms types | awk 'NR > 2 && $NF > 0' | cut -f1 -d. | sort | uniq`
 	availableGPUTypes = map[string]struct{}{
 		"nvidia-a40":              {},
 		"nvidia-a100":             {},
@@ -52,7 +52,9 @@ var (
 		"nvidia-h100-80gb-sxm":    {},
 		"nvidia-h100-80gb-sxm-ib": {},
 		// "nvidia-h200": {},
-		"nvidia-l40s-48gb": {},
+		"nvidia-l40s-48gb":      {},
+		"amd-mi300x-192gb-ib":   {},
+		"amd-mi355x-288gb-roce": {},
 	}
 )
 

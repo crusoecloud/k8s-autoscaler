@@ -18,7 +18,7 @@ require (
 	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.44.241
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/crusoecloud/client-go v0.1.67
+	github.com/crusoecloud/client-go v0.1.111
 	github.com/digitalocean/godo v1.27.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang/mock v1.6.0

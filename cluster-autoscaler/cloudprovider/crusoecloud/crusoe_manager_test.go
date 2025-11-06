@@ -19,10 +19,13 @@ package crusoecloud
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 	"github.com/stretchr/testify/assert"
+	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 )
 
 func TestManager_ListNodePools(t *testing.T) {
@@ -76,4 +79,131 @@ func TestManager_ListNodePoolsNonrunning(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, pools, 1)
 	assert.Equal(t, pools[0].Name, "efgh")
+}
+
+func TestManager_BuildTemplateNodeFromNodePool_AMDGpu(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := testManagerWithMocks()
+
+	// Prevent cache refresh from calling GetVMTypes (set to far future time)
+	mgr.instanceTypeRefreshLastRefresh = time.Now().Add(10 * 365 * 24 * time.Hour)
+
+	// Pre-populate instance type detail map to avoid mocking complexity
+	mgr.instanceTypeDetailMap = map[string]*crusoeInstanceTypeDetail{
+		"mi300x-192gb-ib.8x": {
+			ProductName: "mi300x-192gb-ib.8x",
+			CpuCores:    240,
+			CpuType:     "vCPU",
+			NumGpu:      8,
+			MemoryGb:    2000,
+		},
+	}
+
+	nodePool := &crusoeapi.KubernetesNodePool{
+		Type_: "mi300x-192gb-ib.8x",
+		NodeLabels: map[string]string{
+			nodeLabelGPUKey: "amd-mi300x-192gb",
+		},
+	}
+
+	node, err := mgr.buildTemplateNodeFromNodePool(ctx, nodePool)
+	assert.NoError(t, err)
+	assert.NotNil(t, node)
+
+	assert.Equal(t, "amd-mi300x-192gb", node.Labels[nodeLabelGPUKey])
+
+	pods := node.Status.Capacity[apiv1.ResourcePods]
+	cpu := node.Status.Capacity[apiv1.ResourceCPU]
+	mem := node.Status.Capacity[apiv1.ResourceMemory]
+	gpuAmd := node.Status.Capacity[gpu.ResourceAMDGPU]
+
+	// Ensure Cpacity is set correctly
+	assert.Equal(t, int64(110), pods.Value())
+	assert.Equal(t, int64(240), cpu.Value())
+	assert.Equal(t, int64(2000*1024*1024*1024), mem.Value())
+	assert.Equal(t, int64(8), gpuAmd.Value())
+}
+
+func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpu(t *testing.T) {
+	ctx := context.Background()
+	mgr, _ := testManagerWithMocks()
+
+	// Prevent cache refresh from calling GetVMTypes (set to far future time)
+	mgr.instanceTypeRefreshLastRefresh = time.Now().Add(10 * 365 * 24 * time.Hour)
+
+	// Pre-populate instance type detail map
+	mgr.instanceTypeDetailMap = map[string]*crusoeInstanceTypeDetail{
+		"l40s-48gb.1x": {
+			ProductName: "l40s-48gb.1x",
+			CpuCores:    48,
+			CpuType:     "vCPU",
+			NumGpu:      1,
+			MemoryGb:    192,
+		},
+	}
+
+	nodePool := &crusoeapi.KubernetesNodePool{
+		Type_: "l40s-48gb.1x",
+		NodeLabels: map[string]string{
+			nodeLabelGPUKey: "nvidia-l40s-48gb",
+		},
+	}
+
+	node, err := mgr.buildTemplateNodeFromNodePool(ctx, nodePool)
+	assert.NoError(t, err)
+	assert.NotNil(t, node)
+
+	assert.Equal(t, "nvidia-l40s-48gb", node.Labels[nodeLabelGPUKey])
+
+	pods := node.Status.Capacity[apiv1.ResourcePods]
+	cpu := node.Status.Capacity[apiv1.ResourceCPU]
+	mem := node.Status.Capacity[apiv1.ResourceMemory]
+	gpuNv := node.Status.Capacity[gpu.ResourceNvidiaGPU]
+
+	assert.Equal(t, int64(110), pods.Value())
+	assert.Equal(t, int64(48), cpu.Value())
+	assert.Equal(t, int64(192*1024*1024*1024), mem.Value())
+	assert.Equal(t, int64(1), gpuNv.Value())
+}
+
+func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpuFallback(t *testing.T) {
+	// Targets Node Group before we started adding GPU labels to nodes on create operation
+	ctx := context.Background()
+	mgr, _ := testManagerWithMocks()
+
+	// Prevent cache refresh from calling GetVMTypes (set to far future time)
+	mgr.instanceTypeRefreshLastRefresh = time.Now().Add(10 * 365 * 24 * time.Hour)
+
+	// Pre-populate instance type detail map
+	mgr.instanceTypeDetailMap = map[string]*crusoeInstanceTypeDetail{
+		"h200-141gb-sxm-ib.8x": {
+			ProductName: "h200-141gb-sxm-ib.8x",
+			CpuCores:    176,
+			CpuType:     "vCPU",
+			NumGpu:      8,
+			MemoryGb:    1960,
+		},
+	}
+
+	// Old node without GPU label - should auto-generate
+	nodePool := &crusoeapi.KubernetesNodePool{
+		Type_:      "h200-141gb-sxm-ib.8x",
+		NodeLabels: map[string]string{},
+	}
+
+	node, err := mgr.buildTemplateNodeFromNodePool(ctx, nodePool)
+	assert.NoError(t, err)
+	assert.NotNil(t, node)
+
+	assert.Equal(t, "nvidia-h200-141gb-sxm-ib", node.Labels[nodeLabelGPUKey])
+
+	pods := node.Status.Capacity[apiv1.ResourcePods]
+	cpu := node.Status.Capacity[apiv1.ResourceCPU]
+	mem := node.Status.Capacity[apiv1.ResourceMemory]
+	gpuNv := node.Status.Capacity[gpu.ResourceNvidiaGPU]
+
+	assert.Equal(t, int64(110), pods.Value())
+	assert.Equal(t, int64(176), cpu.Value())
+	assert.Equal(t, int64(1960*1024*1024*1024), mem.Value())
+	assert.Equal(t, int64(8), gpuNv.Value())
 }
