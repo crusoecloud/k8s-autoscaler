@@ -116,12 +116,14 @@ func TestManager_BuildTemplateNodeFromNodePool_AMDGpu(t *testing.T) {
 	cpu := node.Status.Capacity[apiv1.ResourceCPU]
 	mem := node.Status.Capacity[apiv1.ResourceMemory]
 	gpuAmd := node.Status.Capacity[gpu.ResourceAMDGPU]
+	vnicAmd := node.Status.Capacity[amdVNICResourceName]
 
 	// Ensure Cpacity is set correctly
 	assert.Equal(t, int64(110), pods.Value())
 	assert.Equal(t, int64(240), cpu.Value())
 	assert.Equal(t, int64(2000*1024*1024*1024), mem.Value())
 	assert.Equal(t, int64(8), gpuAmd.Value())
+	assert.Equal(t, int64(8), vnicAmd.Value())
 }
 
 func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpu(t *testing.T) {
@@ -159,11 +161,13 @@ func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpu(t *testing.T) {
 	cpu := node.Status.Capacity[apiv1.ResourceCPU]
 	mem := node.Status.Capacity[apiv1.ResourceMemory]
 	gpuNv := node.Status.Capacity[gpu.ResourceNvidiaGPU]
+	_, hasAmdVnic := node.Status.Capacity[amdVNICResourceName]
 
 	assert.Equal(t, int64(110), pods.Value())
 	assert.Equal(t, int64(48), cpu.Value())
 	assert.Equal(t, int64(192*1024*1024*1024), mem.Value())
 	assert.Equal(t, int64(1), gpuNv.Value())
+	assert.False(t, hasAmdVnic)
 }
 
 func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpuFallback(t *testing.T) {
@@ -201,9 +205,11 @@ func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpuFallback(t *testing.T) {
 	cpu := node.Status.Capacity[apiv1.ResourceCPU]
 	mem := node.Status.Capacity[apiv1.ResourceMemory]
 	gpuNv := node.Status.Capacity[gpu.ResourceNvidiaGPU]
+	_, hasAmdVnic := node.Status.Capacity[amdVNICResourceName]
 
 	assert.Equal(t, int64(110), pods.Value())
 	assert.Equal(t, int64(176), cpu.Value())
 	assert.Equal(t, int64(1960*1024*1024*1024), mem.Value())
 	assert.Equal(t, int64(8), gpuNv.Value())
+	assert.False(t, hasAmdVnic)
 }

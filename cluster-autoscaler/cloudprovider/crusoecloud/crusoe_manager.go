@@ -48,7 +48,8 @@ const (
 	nodeLabelProjectIDKey = crusoePrefix + "project.id"
 	nodeLabelGPUKey       = crusoePrefix + "accelerator"
 
-	gpuProductLinePrefixesNvidia = "ahl"
+	gpuProductLinePrefixesNvidia      = "ahl"
+	amdVNICResourceName apiv1.ResourceName = "amd.com/vnics"
 
 	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
 )
@@ -369,7 +370,13 @@ func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodeP
 	// Set GPU resource based on the GPU node label
 	if instanceTypeDetail.NumGpu > 0 {
 		gpuResourceName := getGPUResourceName(nodePool.NodeLabels)
-		node.Status.Capacity[gpuResourceName] = *resource.NewQuantity(instanceTypeDetail.NumGpu, resource.DecimalSI)
+		qty := resource.NewQuantity(instanceTypeDetail.NumGpu, resource.DecimalSI)
+		node.Status.Capacity[gpuResourceName] = *qty
+		// TODO: Remove after VM API provides VNIC counts.
+		if gpuResourceName == gpu.ResourceAMDGPU {
+			// VM API doesn't provide VNIC counts; assume symmetric vNICs to GPU count for AMD nodes.
+			node.Status.Capacity[amdVNICResourceName] = *qty
+		}
 	}
 
 	node.Status.Allocatable = node.Status.Capacity
