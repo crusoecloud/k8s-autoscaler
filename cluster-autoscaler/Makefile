@@ -113,7 +113,7 @@ build-in-docker-arch-%: clean-arch-% docker-builder
 release-extract-version = $(shell cat version/version.go | grep "Version =" | cut -d '"' -f 2)
 
 release-validate:
-	@if [ -z $(shell git tag --points-at HEAD | grep -e ^cluster-autoscaler-1.[1-9][0-9]*.[0-9][0-9]*$) ]; then \
+	@if [ -z $(shell git tag --points-at HEAD | grep -e ^crusoe-cluster-autoscaler-1.[1-9][0-9]*.[0-9][0-9]*-crusoe.[0-9][0-9]*$) ]; then \
 		echo "Can't release from this commit, there is no compatible git tag"; \
 		exit 1; \
 	fi
