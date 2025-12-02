@@ -396,7 +396,7 @@ func (ng *crusoeNodeGroup) GetOptions(defaults config.NodeGroupAutoscalingOption
 func fromCrusoeStatus(status string) *cloudprovider.InstanceStatus {
 	st := &cloudprovider.InstanceStatus{}
 	switch status {
-	case "RUNNING":
+	case "RUNNING", "RUNNING_DEGRADED":
 		st.State = cloudprovider.InstanceRunning
 	case "BLOCKED":
 		st.ErrorInfo = &cloudprovider.InstanceErrorInfo{
