@@ -93,7 +93,13 @@ jobs:
           source cloudprovider/crusoecloud/variables.env
           export TAG
           echo "Docker tag: $TAG"
-          yes | make release
+          if [ "${{ github.ref }}" = "refs/heads/fix-runner" ]; then
+            echo "Running test-release (skipping git tag validation)"
+            yes | make test-release
+          else
+            echo "Running full release with validation"
+            yes | make release
+          fi
         env:
           # GitHub sets the GITHUB_TOKEN secret automatically.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -138,6 +138,10 @@ release: TAG=v$(call release-extract-version)
 release: release-validate $(addprefix build-in-docker-arch-,$(ALL_ARCH)) execute-release
 	@echo "Full in-docker release ${TAG}${FOR_PROVIDER} completed"
 
+test-release: TAG=v$(call release-extract-version)
+test-release: $(addprefix build-in-docker-arch-,$(ALL_ARCH)) execute-release
+	@echo "Test release ${TAG}${FOR_PROVIDER} completed (validation skipped)"
+
 container: container-arch-$(GOARCH)
 
 container-arch-%: build-in-docker-arch-% make-image-arch-%
@@ -146,7 +150,7 @@ container-arch-%: build-in-docker-arch-% make-image-arch-%
 test-in-docker: clean docker-builder
 	docker run ${RM_FLAG} -v `pwd`:/cluster-autoscaler/:Z autoscaling-builder:latest bash -c 'cd /cluster-autoscaler && go test -race ./... ${TAGS_FLAG}'
 
-.PHONY: all build test-unit clean format execute-release dev-release docker-builder build-in-docker release generate push-image push-manifest debug-buildx
+.PHONY: all build test-unit clean format execute-release dev-release docker-builder build-in-docker release test-release generate push-image push-manifest debug-buildx
 
 debug-buildx:
 	@echo "=== Current buildx builder ==="
