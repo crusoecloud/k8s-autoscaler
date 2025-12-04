@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - crusoe-cluster-autoscaler-release-**
+      - fix-runner
     paths-ignore:
       - '!cluster-autoscaler/**'
       - '!cluster-autoscaler/cloudprovider/**'
