@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - crusoe-cluster-autoscaler-release-**
+      - fix-runner
     paths-ignore:
       - '!cluster-autoscaler/**'
       - '!cluster-autoscaler/cloudprovider/**'
@@ -47,12 +48,21 @@ jobs:
         shell: bash
 
       - name: Read version and push tag
+        if: github.ref != 'refs/heads/fix-runner'
         working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
         run: |
           source variables.env
           echo "Calculated version: $RELEASE_VERSION"
           git tag $RELEASE_VERSION
           git push origin $RELEASE_VERSION
+      
+      - name: Set TAG for testing (fix-runner only)
+        if: github.ref == 'refs/heads/fix-runner'
+        working-directory: ./cluster-autoscaler/cloudprovider/crusoecloud
+        run: |
+          source variables.env
+          echo "Testing with version: $RELEASE_VERSION (no git tag will be created)"
+          echo "TAG=$RELEASE_VERSION" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
