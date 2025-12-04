@@ -67,11 +67,17 @@ dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
 make-image: make-image-arch-$(GOARCH)
 
 make-image-arch-%:
+	@echo "=== Building image for $* ==="
+	@echo "Target tag: ${IMAGE}-$*:${TAG}"
 	GOOS=$(GOOS) docker buildx build --pull --platform linux/$* \
 		--build-arg "GOARCH=$*" \
 		-t ${IMAGE}-$*:${TAG} \
 		-f Dockerfile .
-	@echo "Image ${TAG}${FOR_PROVIDER}-$* completed"
+	@echo "=== Image ${TAG}${FOR_PROVIDER}-$* completed ==="
+	@echo "=== Docker images (local daemon) ==="
+	@docker images | grep -E "(REPOSITORY|cluster-autoscaler)" || echo "No cluster-autoscaler images in local daemon"
+	@echo "=== Buildx imagetools inspect ==="
+	@docker buildx imagetools inspect ${IMAGE}-$*:${TAG} 2>&1 || echo "Image not yet in registry"
 
 push-image: push-image-arch-$(GOARCH)
 
@@ -79,7 +85,13 @@ push-image-arch-%:
 	./push_image.sh ${IMAGE}-$*:${TAG}
 
 push-release-image-arch-%:
-	docker push ${IMAGE}-$*:${TAG}
+	@echo "=== Push release for $* ==="
+	@echo "Target: ${IMAGE}-$*:${TAG}"
+	@echo "=== Local images ==="
+	@docker images ${IMAGE}-$* || echo "No local images found"
+	@echo "=== Checking registry ==="
+	@docker buildx imagetools inspect ${IMAGE}-$*:${TAG} 2>&1 || echo "Not in registry yet"
+	@echo "Image ${IMAGE}-$*:${TAG} already pushed by buildx"
 
 push-manifest:
 	docker manifest create ${IMAGE}:${TAG} \
@@ -134,7 +146,15 @@ container-arch-%: build-in-docker-arch-% make-image-arch-%
 test-in-docker: clean docker-builder
 	docker run ${RM_FLAG} -v `pwd`:/cluster-autoscaler/:Z autoscaling-builder:latest bash -c 'cd /cluster-autoscaler && go test -race ./... ${TAGS_FLAG}'
 
-.PHONY: all build test-unit clean format execute-release dev-release docker-builder build-in-docker release generate push-image push-manifest
+.PHONY: all build test-unit clean format execute-release dev-release docker-builder build-in-docker release generate push-image push-manifest debug-buildx
+
+debug-buildx:
+	@echo "=== Current buildx builder ==="
+	@docker buildx ls
+	@echo "=== Current builder inspect ==="
+	@docker buildx inspect
+	@echo "=== Docker images in local daemon ==="
+	@docker images | head -20
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin

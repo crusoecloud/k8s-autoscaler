@@ -66,6 +66,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Debug Docker and Buildx state
+        run: |
+          echo "=== Docker version ==="
+          docker version
+          echo "=== Buildx builders ==="
+          docker buildx ls
+          echo "=== Current builder details ==="
+          docker buildx inspect
+          echo "=== Docker images (before build) ==="
+          docker images | head -20
+          echo "=== Registry login status ==="
+          docker info | grep -A5 "Registry"
       - name: Run Makefile
         run: |
           source cloudprovider/crusoecloud/variables.env
