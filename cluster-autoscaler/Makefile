@@ -69,7 +69,7 @@ make-image: make-image-arch-$(GOARCH)
 make-image-arch-%:
 	@echo "=== Building image for $* ==="
 	@echo "Target tag: ${IMAGE}-$*:${TAG}"
-	GOOS=$(GOOS) docker buildx build --pull --platform linux/$* \
+	GOOS=$(GOOS) docker buildx build --pull --load --platform linux/$* \
 		--build-arg "GOARCH=$*" \
 		-t ${IMAGE}-$*:${TAG} \
 		-f Dockerfile .
@@ -87,11 +87,11 @@ push-image-arch-%:
 push-release-image-arch-%:
 	@echo "=== Push release for $* ==="
 	@echo "Target: ${IMAGE}-$*:${TAG}"
-	@echo "=== Local images ==="
+	@echo "=== Local images (before push) ==="
 	@docker images ${IMAGE}-$* || echo "No local images found"
-	@echo "=== Checking registry ==="
-	@docker buildx imagetools inspect ${IMAGE}-$*:${TAG} 2>&1 || echo "Not in registry yet"
-	@echo "Image ${IMAGE}-$*:${TAG} already pushed by buildx"
+	docker push ${IMAGE}-$*:${TAG}
+	@echo "=== Push completed ==="
+	@docker buildx imagetools inspect ${IMAGE}-$*:${TAG} 2>&1 || echo "Failed to verify in registry"
 
 push-manifest:
 	docker manifest create ${IMAGE}:${TAG} \

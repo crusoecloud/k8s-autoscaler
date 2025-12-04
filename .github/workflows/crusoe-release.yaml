@@ -87,7 +87,7 @@ jobs:
           echo "=== Docker images (before build) ==="
           docker images | head -20
           echo "=== Registry login status ==="
-          docker info | grep -A5 "Registry"
+          docker info
       - name: Run Makefile
         run: |
           source cloudprovider/crusoecloud/variables.env
