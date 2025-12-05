@@ -71,7 +71,7 @@ dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
 make-image: make-image-arch-$(GOARCH)
 
 make-image-arch-%:
-	GOOS=$(GOOS) docker buildx build --pull --platform linux/$* \
+	GOOS=$(GOOS) docker buildx build --pull --load --platform linux/$* \
 		--build-arg "GOARCH=$*" \
 		-t ${IMAGE}-$*:${TAG} \
 		-f Dockerfile .
