@@ -122,7 +122,6 @@ release-validate:
 		exit 1; \
 	fi
 
-release: TAG=v$(call release-extract-version)
 release: release-validate $(addprefix build-in-docker-arch-,$(ALL_ARCH)) execute-release
 	@echo "Full in-docker release ${TAG}${FOR_PROVIDER} completed"
 
