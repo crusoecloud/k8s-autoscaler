@@ -121,8 +121,9 @@ release-validate:
 		echo "Can't release from this commit, git tag does not match version/version.go"; \
 		exit 1; \
 	fi
-
-release: TAG=v$(call release-extract-version)
+# This overrides the tag from the tag_crusoe_ver.sh script set in our CI release workflow.
+# For now commenting it and once we are merged with upstream, we should fix it
+# release: TAG=v$(call release-extract-version)
 release: release-validate $(addprefix build-in-docker-arch-,$(ALL_ARCH)) execute-release
 	@echo "Full in-docker release ${TAG}${FOR_PROVIDER} completed"
 
