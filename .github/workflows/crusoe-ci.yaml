@@ -15,14 +15,15 @@ jobs:
   test-and-verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: '1.22.1'
-
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           path: ${{ env.GOPATH }}/src/k8s.io/autoscaler
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: ${{ env.GOPATH }}/src/k8s.io/autoscaler/cluster-autoscaler/go.mod
+          cache: false
 
       - name: Apt-get
         run: sudo apt-get install libseccomp-dev -qq
