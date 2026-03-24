@@ -3,7 +3,7 @@ include:
     file: '/templates/go.gitlab-ci.yml'
 
 variables:
-  CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.22"
+  CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.24"
   SUBPROJECT: "cluster-autoscaler"
   SUBPROJECT_PATH: "cluster-autoscaler/"
   SUBPROJECT_REL_PATH: "./cluster-autoscaler"
