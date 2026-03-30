@@ -23,6 +23,7 @@ import (
 	"github.com/antihax/optional"
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
@@ -168,7 +169,7 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 
 	// Waiting for the resize to finish
 	mocks.nodePoolOpsApi.
-		On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").
+		On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").
 		Return(
 			crusoeapi.Operation{
 				OperationId: "opId",
@@ -205,6 +206,111 @@ func TestNodeGroup_IncreaseAboveMaximum(t *testing.T) {
 
 	err := ng.IncreaseSize(delta)
 	assert.Error(t, err)
+}
+
+func TestNodeGroup_IncreaseSizeOperationFailed(t *testing.T) {
+	ctx := context.Background()
+	curNumNodes := 3
+	delta := 2
+	ng, mocks := testNodeGroupWithMocks(curNumNodes)
+
+	newNumNodes := int64(curNumNodes + delta)
+
+	// First refresh (before UpdateNodePool)
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(curNumNodes),
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// Second refresh (after failed operation) - pool count reverted
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       int64(curNumNodes),
+				State:       stateRunning,
+				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3"},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId1,nodeId2,nodeId3"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{
+					{Id: "nodeId1", Name: "node1", ProjectId: testProjectID},
+					{Id: "nodeId2", Name: "node2", ProjectId: testProjectID},
+					{Id: "nodeId3", Name: "node3", ProjectId: testProjectID},
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Twice()
+
+	// The resize API call succeeds
+	mocks.nodePoolsApi.
+		On("UpdateNodePool",
+			ctx,
+			crusoeapi.KubernetesNodePoolPatchRequest{Count: newNumNodes},
+			testProjectID,
+			testNodePoolID,
+		).
+		Return(
+			crusoeapi.AsyncOperationResponse{
+				Operation: &crusoeapi.Operation{
+					OperationId: "opId",
+					State:       string(opInProgress),
+				},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	// But the operation fails (e.g. capacity exhaustion)
+	mocks.nodePoolOpsApi.
+		On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").
+		Return(
+			crusoeapi.Operation{
+				OperationId: "opId",
+				State:       string(opFailed),
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	err := ng.IncreaseSize(delta)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "operation failed")
+
+	// Target size should be corrected after refresh
+	size, _ := ng.TargetSize()
+	assert.Equal(t, curNumNodes, size, "target size should revert to original after failed operation")
+
+	mocks.nodePoolsApi.AssertExpectations(t)
+	mocks.nodePoolOpsApi.AssertExpectations(t)
+	mocks.vmApi.AssertExpectations(t)
 }
 
 func TestNodeGroup_DecreaseTargetSize(t *testing.T) {
@@ -280,7 +386,7 @@ func TestNodeGroup_DecreaseTargetSize(t *testing.T) {
 		}, httpSuccessResponse(), nil,
 	).Once()
 
-	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").Return(
 		crusoeapi.Operation{
 			OperationId: "opId",
 			State:       string(opSucceeded),
@@ -395,7 +501,7 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 		}, httpSuccessResponse(), nil,
 	).Once()
 
-	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").Return(
 		crusoeapi.Operation{
 			OperationId: "opId",
 			State:       string(opSucceeded),
@@ -432,13 +538,13 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 		}, httpSuccessResponse(), nil,
 		).Once()
 
-	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", ctx, testProjectID, "opId1").
+	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", mock.Anything, testProjectID, "opId1").
 		Return(crusoeapi.Operation{OperationId: "opId1", State: string(opSucceeded)},
 			httpSuccessResponse(), nil).Once()
-	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", ctx, testProjectID, "opId2").
+	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", mock.Anything, testProjectID, "opId2").
 		Return(crusoeapi.Operation{OperationId: "opId2", State: string(opSucceeded)},
 			httpSuccessResponse(), nil).Once()
-	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", ctx, testProjectID, "opId3").
+	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", mock.Anything, testProjectID, "opId3").
 		Return(crusoeapi.Operation{OperationId: "opId3", State: string(opSucceeded)},
 			httpSuccessResponse(), nil).Once()
 
@@ -493,7 +599,7 @@ func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "nonexistent-on-provider-side.local"}, Spec: apiv1.NodeSpec{ProviderID: "nonexistent-on-provider-side"}},
 	}
 
-	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", ctx, testProjectID, "opId").Return(
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").Return(
 		crusoeapi.Operation{
 			OperationId: "opId",
 			State:       string(opSucceeded),
@@ -509,7 +615,7 @@ func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 		}, httpSuccessResponse(), nil,
 		).Once()
 
-	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", ctx, testProjectID, "opId1").
+	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", mock.Anything, testProjectID, "opId1").
 		Return(crusoeapi.Operation{OperationId: "opId1", State: string(opFailed)},
 			httpSuccessResponse(), nil).Once()
 

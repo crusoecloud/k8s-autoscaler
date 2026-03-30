@@ -117,29 +117,29 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return err
 	}
 
-	refreshErr := ng.refresh()
-	if refreshErr != nil {
-		klog.Errorf("IncreaseSize (background),PoolID=%s, failed to refresh node group: %v", ng.Id(), refreshErr)
+	op, err = ng.manager.WaitForNodePoolOperationComplete(ctx, op)
+	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed waiting to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
+		if refreshErr := ng.refresh(); refreshErr != nil {
+			klog.Errorf("IncreaseSize,PoolID=%s, additionally failed to refresh node group: %v", ng.pool.Id, refreshErr)
+		}
+		return fmt.Errorf("couldn't increase pool size to %d: %w", targetSize, err)
+	}
+	if op.State == string(opFailed) {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to set target nodepool size to %d: operation failed with %v", ng.pool.Id, targetSize, op.Result)
+		if refreshErr := ng.refresh(); refreshErr != nil {
+			klog.Errorf("IncreaseSize,PoolID=%s, additionally failed to refresh node group: %v", ng.pool.Id, refreshErr)
+		}
+		return fmt.Errorf("couldn't increase pool size to %d: operation failed with %v", targetSize, op.Result)
 	}
 
-	// target size has already updated so waiting for vms to be created can happen asynchronously
-	go ng.trackIncreaseSizeAsync(ng.pool.Id, op)
+	err = ng.refresh()
+	if err != nil {
+		klog.Errorf("IncreaseSize,PoolID=%s, failed to refresh node group after increase size: %v", ng.pool.Id, err)
+		return fmt.Errorf("failed to refresh node group after increase size: %v", err)
+	}
 
 	return nil
-}
-
-func (ng *crusoeNodeGroup) trackIncreaseSizeAsync(poolID string, op *crusoeapi.Operation) {
-	ctx := context.Background()
-	klog.V(5).Infof("IncreaseSize (background): waiting for opID=%s on poolID=%s", op.OperationId, poolID)
-
-	finalOp, waitErr := ng.manager.WaitForNodePoolOperationComplete(ctx, op)
-	if waitErr != nil {
-		klog.Errorf("IncreaseSize (background),PoolID=%s, failed waiting for opID=%s: %v", poolID, op.OperationId, waitErr)
-	}
-
-	if finalOp.State == string(opFailed) {
-		klog.Errorf("IncreaseSize (background),PoolID=%s, opID=%s failed: %v", poolID, op.OperationId, finalOp.Result)
-	}
 }
 
 // AtomicIncreaseSize is not implemented.
