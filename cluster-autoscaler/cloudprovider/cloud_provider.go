@@ -48,6 +48,8 @@ const (
 	CoreWeaveProviderName = "coreweave"
 	// ClusterAPIProviderName gets the provider name of clusterapi
 	ClusterAPIProviderName = "clusterapi"
+	// CrusoeCloudProviderName gets the provider name of crusoecloud
+	CrusoeCloudProviderName = "crusoecloud"
 	// DigitalOceanProviderName gets the provider name of digitalocean
 	DigitalOceanProviderName = "digitalocean"
 	// ExoscaleProviderName gets the provider name of exoscale

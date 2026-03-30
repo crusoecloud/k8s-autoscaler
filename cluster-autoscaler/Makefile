@@ -60,6 +60,9 @@ test-build-tags:
 test-unit: clean build
 	go test --test.short -race ./... -vet="${GO_TEST_DEFAULT_ANALYZERS}" ${TAGS_FLAG}
 
+# make target for crusoe fork
+ci: test-unit
+
 dev-release: dev-release-arch-$(GOARCH)
 
 dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
@@ -68,7 +71,7 @@ dev-release-arch-%: build-arch-% make-image-arch-% push-image-arch-%
 make-image: make-image-arch-$(GOARCH)
 
 make-image-arch-%:
-	GOOS=$(GOOS) docker buildx build --pull --platform linux/$* \
+	GOOS=$(GOOS) docker buildx build --pull --load --platform linux/$* \
 		--build-arg "GOARCH=$*" \
 		-t ${IMAGE}-$*:${TAG} \
 		-f Dockerfile .
@@ -114,7 +117,7 @@ build-in-docker-arch-%: clean-arch-% docker-builder
 release-extract-version = $(shell cat version/version.go | grep "Version =" | cut -d '"' -f 2)
 
 release-validate:
-	@if [ -z $(shell git tag --points-at HEAD | grep -e ^cluster-autoscaler-1.[1-9][0-9]*.[0-9][0-9]*$) ]; then \
+	@if [ -z $(shell git tag --points-at HEAD | grep -e ^crusoe-cluster-autoscaler-1.[1-9][0-9]*.[0-9][0-9]*-crusoe.[0-9][0-9]*$) ]; then \
 		echo "Can't release from this commit, there is no compatible git tag"; \
 		exit 1; \
 	fi
@@ -122,8 +125,9 @@ release-validate:
 		echo "Can't release from this commit, git tag does not match version/version.go"; \
 		exit 1; \
 	fi
-
-release: TAG=v$(call release-extract-version)
+# This overrides the tag from the tag_crusoe_ver.sh script set in our CI release workflow.
+# For now commenting it and once we are merged with upstream, we should fix it
+# release: TAG=v$(call release-extract-version)
 release: release-validate $(addprefix build-in-docker-arch-,$(ALL_ARCH)) execute-release
 	@echo "Full in-docker release ${TAG}${FOR_PROVIDER} completed"
 
