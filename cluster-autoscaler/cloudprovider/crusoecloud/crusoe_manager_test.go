@@ -213,3 +213,84 @@ func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpuFallback(t *testing.T) {
 	assert.Equal(t, int64(8), gpuNv.Value())
 	assert.False(t, hasAmdVnic)
 }
+
+func TestManager_UpdateNodePool_PreservesExistingFields(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+
+	pool := &crusoeapi.KubernetesNodePool{
+		Id:                            testNodePoolID,
+		ProjectId:                     testProjectID,
+		ClusterId:                     testClusterID,
+		Count:                         3,
+		EphemeralStorageForContainerd: true,
+		ReservationId:                 "reservation-123",
+		NodeLabels: map[string]string{
+			"team":                  "platform",
+			"env":                   "prod",
+			crusoePrefix + "system": "should-be-stripped",
+		},
+	}
+
+	expectedReq := crusoeapi.KubernetesNodePoolPatchRequest{
+		Action:                        "UPDATE",
+		Count:                         5,
+		EphemeralStorageForContainerd: true,
+		ReservationId:                 "reservation-123",
+		NodeLabels: map[string]string{
+			"team": "platform",
+			"env":  "prod",
+		},
+	}
+
+	mocks.nodePoolsApi.
+		On("UpdateNodePool", ctx, expectedReq, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.AsyncOperationResponse{
+				Operation: &crusoeapi.Operation{OperationId: "op-1", State: string(opInProgress)},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	op, err := mgr.UpdateNodePool(ctx, pool, 5)
+	assert.NoError(t, err)
+	assert.NotNil(t, op)
+	assert.Equal(t, "op-1", op.OperationId)
+	mocks.nodePoolsApi.AssertExpectations(t)
+}
+
+// TestManager_UpdateNodePool_NoLabelsOrReservation verifies that pools without
+// labels or reservations produce a minimal request.
+func TestManager_UpdateNodePool_NoLabelsOrReservation(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+
+	pool := &crusoeapi.KubernetesNodePool{
+		Id:        testNodePoolID,
+		ProjectId: testProjectID,
+		ClusterId: testClusterID,
+		Count:     2,
+	}
+
+	expectedReq := crusoeapi.KubernetesNodePoolPatchRequest{
+		Action: "UPDATE",
+		Count:  4,
+	}
+
+	mocks.nodePoolsApi.
+		On("UpdateNodePool", ctx, expectedReq, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.AsyncOperationResponse{
+				Operation: &crusoeapi.Operation{OperationId: "op-2", State: string(opInProgress)},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	_, err := mgr.UpdateNodePool(ctx, pool, 4)
+	assert.NoError(t, err)
+	mocks.nodePoolsApi.AssertExpectations(t)
+}
