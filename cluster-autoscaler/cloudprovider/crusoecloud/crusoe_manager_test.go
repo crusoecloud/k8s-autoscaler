@@ -214,10 +214,6 @@ func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpuFallback(t *testing.T) {
 	assert.False(t, hasAmdVnic)
 }
 
-// TestManager_UpdateNodePool_PreservesExistingFields guards against a regression
-// where UpdateNodePool sent only Count and the server reset NodeLabels,
-// EphemeralStorageForContainerd, and ReservationId to their zero values because
-// the swagger model lacks omitempty on those fields.
 func TestManager_UpdateNodePool_PreservesExistingFields(t *testing.T) {
 	ctx := context.Background()
 	mgr, mocks := testManagerWithMocks()
@@ -266,8 +262,7 @@ func TestManager_UpdateNodePool_PreservesExistingFields(t *testing.T) {
 }
 
 // TestManager_UpdateNodePool_NoLabelsOrReservation verifies that pools without
-// labels or reservations produce a minimal request — avoiding a nil-vs-empty-map
-// distinction that would still cause the server to clobber state.
+// labels or reservations produce a minimal request.
 func TestManager_UpdateNodePool_NoLabelsOrReservation(t *testing.T) {
 	ctx := context.Background()
 	mgr, mocks := testManagerWithMocks()
