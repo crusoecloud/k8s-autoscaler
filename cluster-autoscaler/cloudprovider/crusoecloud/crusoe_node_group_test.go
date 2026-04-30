@@ -152,7 +152,7 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 	mocks.nodePoolsApi.
 		On("UpdateNodePool",
 			ctx,
-			crusoeapi.KubernetesNodePoolPatchRequest{Count: newNumNodes},
+			crusoeapi.KubernetesNodePoolPatchRequest{Action: "UPDATE", Count: newNumNodes},
 			testProjectID,
 			testNodePoolID,
 		).
@@ -283,7 +283,8 @@ func TestNodeGroup_DecreaseTargetSize(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Count: newSize,
+			Action: "UPDATE",
+			Count:  newSize,
 		},
 		testProjectID,
 		testNodePoolID,
@@ -398,7 +399,8 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Count: newSize,
+			Action: "UPDATE",
+			Count:  newSize,
 		},
 		testProjectID,
 		testNodePoolID,
@@ -492,7 +494,8 @@ func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Count: newSize,
+			Action: "UPDATE",
+			Count:  newSize,
 		},
 		testProjectID,
 		testNodePoolID,

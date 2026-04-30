@@ -111,7 +111,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return nil
 	}
 
-	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
+	op, err := ng.manager.UpdateNodePool(ctx, ng.pool, targetSize)
 	if err != nil {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
@@ -190,7 +190,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) lower than desired count (%d), setting desired count to match target size",
 			ng.pool.Id, targetSize, ng.pool.Count,
 		)
-		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, int64(targetSize))
+		ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool, int64(targetSize))
 		if err != nil {
 			klog.Errorf("DeleteNodes,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 			return err
@@ -295,7 +295,7 @@ func (ng *crusoeNodeGroup) DecreaseTargetSize(delta int) error {
 		return nil
 	}
 
-	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
+	ngOp, err := ng.manager.UpdateNodePool(ctx, ng.pool, targetSize)
 	if err != nil {
 		klog.Errorf("DecreaseTargetSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
 		return err
