@@ -48,8 +48,8 @@ const (
 	nodeLabelProjectIDKey = crusoePrefix + "project.id"
 	nodeLabelGPUKey       = crusoePrefix + "accelerator"
 
-	gpuProductLinePrefixesNvidia      = "ahl"
-	amdVNICResourceName apiv1.ResourceName = "amd.com/vnics"
+	gpuProductLinePrefixesNvidia                    = "ahl"
+	amdVNICResourceName          apiv1.ResourceName = "amd.com/vnics"
 
 	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
 )
@@ -276,13 +276,10 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 	return &resp, nil
 }
 
-// UpdateNodePool issues a PATCH against the node pool. The Crusoe
-// KubernetesNodePoolPatchRequest model lacks omitempty on most fields, so any
+// The Crusoe KubernetesNodePoolPatchRequest model doesn't specify omitempty on most fields, so any
 // field left at its Go zero value is serialized and treated by the server as
-// an explicit reset. To avoid wiping config (labels, ephemeral storage) when
-// only the desired count is changing, we carry forward the existing pool's
-// values for every other field — mirroring the customer-cli pattern in
-// cmdKubernetesNodepools.go.
+// an explicit reset. To avoid this, we carry forward the existing pool's
+// values for every other field.
 func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, pool *crusoeapi.KubernetesNodePool, targetSize int64) (*crusoeapi.Operation, error) {
 	req := crusoeapi.KubernetesNodePoolPatchRequest{
 		Action:                        "UPDATE",
