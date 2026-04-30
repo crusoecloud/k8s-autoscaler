@@ -48,8 +48,8 @@ const (
 	nodeLabelProjectIDKey = crusoePrefix + "project.id"
 	nodeLabelGPUKey       = crusoePrefix + "accelerator"
 
-	gpuProductLinePrefixesNvidia      = "ahl"
-	amdVNICResourceName apiv1.ResourceName = "amd.com/vnics"
+	gpuProductLinePrefixesNvidia                    = "ahl"
+	amdVNICResourceName          apiv1.ResourceName = "amd.com/vnics"
 
 	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
 )
@@ -276,19 +276,45 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 	return &resp, nil
 }
 
-func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, poolID string, targetSize int64) (*crusoeapi.Operation, error) {
-	resp, httpResp, err := mgr.nodePoolsApi.UpdateNodePool(ctx,
-		crusoeapi.KubernetesNodePoolPatchRequest{Count: targetSize},
-		mgr.projectID, poolID)
+// The Crusoe KubernetesNodePoolPatchRequest model doesn't specify omitempty on most fields, so any
+// field left at its Go zero value is serialized and treated by the server as
+// an explicit reset. To avoid this, we carry forward the existing pool's
+// values for every other field.
+func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, pool *crusoeapi.KubernetesNodePool, targetSize int64) (*crusoeapi.Operation, error) {
+	req := crusoeapi.KubernetesNodePoolPatchRequest{
+		Action:                        "UPDATE",
+		Count:                         targetSize,
+		EphemeralStorageForContainerd: pool.EphemeralStorageForContainerd,
+	}
+	if labels := userNodeLabels(pool.NodeLabels); len(labels) > 0 {
+		req.NodeLabels = labels
+	}
+	if pool.ReservationId != "" {
+		req.ReservationId = pool.ReservationId
+	}
 
+	resp, httpResp, err := mgr.nodePoolsApi.UpdateNodePool(ctx, req, mgr.projectID, pool.Id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update node pool %s for cluster %s: %w", poolID, mgr.clusterID, err)
+		return nil, fmt.Errorf("failed to update node pool %s for cluster %s: %w", pool.Id, mgr.clusterID, err)
 	}
 	if httpResp.StatusCode >= 400 {
 		return nil, fmt.Errorf("failed to update node pool %s for cluster %s: http error %s",
-			poolID, mgr.clusterID, httpResp.Status)
+			pool.Id, mgr.clusterID, httpResp.Status)
 	}
 	return resp.Operation, nil
+}
+
+// userNodeLabels returns the user-defined subset of pool labels, stripping
+// the internal "crusoe.ai/" prefix entries so they aren't echoed back on PATCH.
+func userNodeLabels(labels map[string]string) map[string]string {
+	out := make(map[string]string, len(labels))
+	for k, v := range labels {
+		if strings.HasPrefix(k, crusoePrefix) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func (mgr *crusoeManager) GetNodePoolOperation(ctx context.Context, opID string) (*crusoeapi.Operation, error) {
