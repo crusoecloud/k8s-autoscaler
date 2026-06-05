@@ -51,11 +51,11 @@ rules:
     resources: ["statefulsets", "replicasets", "daemonsets"]
     verbs: ["watch", "list", "get"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["batch"]
+  - apiGroups: ["batch", "extensions"]
     resources: ["jobs", "cronjobs"]
-    verbs: ["watch", "list", "get"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["create"]
@@ -76,7 +76,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["create","list","watch"]
+    verbs: ["create", "list", "watch"]
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames:
@@ -136,8 +136,13 @@ spec:
     metadata:
       labels:
         app: cluster-autoscaler
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8085"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: cluster-autoscaler
+      priorityClassName: system-cluster-critical
       containers:
         - command:
             - ./cluster-autoscaler
@@ -145,17 +150,36 @@ spec:
             - --logtostderr=true
             - --v=4
             - --cloud-provider=crusoecloud
-            - --nodes=<min>:<max>:<nodepool>
+            - --ignore-taint=node.cilium.io/agent-not-ready
+            - --nodes=<min>:<max>:<nodepool-name>
           envFrom:
             - secretRef:
                 name: crusoe-secrets
-          image: ghcr.io/crusoecloud/cluster-autoscaler-crusoecloud:{{ ca_version e.g. 1.30.3-crusoe.5 }}
+          image: ghcr.io/crusoecloud/cluster-autoscaler-crusoecloud:{{ ca_version e.g. 1.33.2-crusoe.7 }}
           imagePullPolicy: Always
           name: cluster-autoscaler
+          ports:
+            - containerPort: 8085
+              name: metrics
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health-check
+              port: 8085
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health-check
+              port: 8085
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
           resources:
             limits:
-              cpu: 100m
-              memory: 300Mi
+              cpu: 200m
+              memory: 1Gi
             requests:
               cpu: 100m
               memory: 300Mi
