@@ -514,7 +514,7 @@ func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 // calculateActiveNodesFromCacheLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
 func (ng *crusoeNodeGroup) calculateActiveNodesFromCacheLocked() int {
 	activeNodeCount := 0
-	for i, _ := range ng.nodes {
+	for i := range ng.nodes {
 		// do not count nodes where deletion request is already sent
 		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; ok {
 			klog.V(4).Infof("Found node with id %s in deletion in progress node set", ng.nodes[i].Id)
