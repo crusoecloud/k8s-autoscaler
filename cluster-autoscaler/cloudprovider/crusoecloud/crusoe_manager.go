@@ -227,7 +227,9 @@ func (mgr *crusoeManager) Refresh() error {
 		}
 
 		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
-			cachedNg.refresh()
+			if err := cachedNg.refresh(); err != nil {
+				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
+			}
 			ngs = append(ngs, cachedNg)
 		} else {
 			ng := crusoeNodeGroup{
@@ -239,7 +241,9 @@ func (mgr *crusoeManager) Refresh() error {
 				spec: spec,
 			}
 			// refresh to populate nodes and target size information
-			ng.refresh()
+			if err := ng.refresh(); err != nil {
+				klog.Errorf("Refresh failed for new nodepool %s: %s", p.Id, err)
+			}
 			ngs = append(ngs, &ng)
 		}
 	}
