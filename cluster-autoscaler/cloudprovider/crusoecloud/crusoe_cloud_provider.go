@@ -190,7 +190,11 @@ func BuildCrusoeCloud(
 			klog.Fatalf("Could not open cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
 		}
 
-		defer configFile.Close()
+		defer func() {
+			if err := configFile.Close(); err != nil {
+				klog.Errorf("Could not close cloud provider configuration file %q, error: %v", opts.CloudConfig, err)
+			}
+		}()
 	} else {
 		klog.Warningf("No config file provided, using environment only")
 	}

@@ -145,6 +145,8 @@ spec:
             - --logtostderr=true
             - --v=4
             - --cloud-provider=crusoecloud
+            # Repeat --nodes for every nodepool the autoscaler should manage.
+            # Nodepools without a --nodes entry are ignored by the autoscaler.
             - --nodes=<min>:<max>:<nodepool>
           envFrom:
             - secretRef:
