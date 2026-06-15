@@ -33,9 +33,6 @@ import (
 )
 
 const (
-	defaultMinNodePoolSize = 1
-	defaultMaxNodePoolSize = 254
-
 	instanceBatchSize = 50 // page instance fetch by this size
 )
 
@@ -56,20 +53,16 @@ type crusoeNodeGroup struct {
 	spec *dynamic.NodeGroupSpec
 }
 
-// MaxSize returns maximum size of the node group.
+// MaxSize returns maximum size of the node group. Node groups are only
+// created for pools with a configured spec, so spec is never nil here.
 func (ng *crusoeNodeGroup) MaxSize() int {
-	if ng.spec != nil {
-		return ng.spec.MaxSize
-	}
-	return int(defaultMaxNodePoolSize)
+	return ng.spec.MaxSize
 }
 
-// MinSize returns minimum size of the node group.
+// MinSize returns minimum size of the node group. Node groups are only
+// created for pools with a configured spec, so spec is never nil here.
 func (ng *crusoeNodeGroup) MinSize() int {
-	if ng.spec != nil {
-		return ng.spec.MinSize
-	}
-	return int(defaultMinNodePoolSize)
+	return ng.spec.MinSize
 }
 
 // TargetSize returns the current target size of the node group. It is possible that the
@@ -525,7 +518,7 @@ func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 // calculateActiveNodesFromCacheLocked is intended to only be called when nodeGroupRWMutex is already held by the caller
 func (ng *crusoeNodeGroup) calculateActiveNodesFromCacheLocked() int {
 	activeNodeCount := 0
-	for i, _ := range ng.nodes {
+	for i := range ng.nodes {
 		// do not count nodes where deletion request is already sent
 		if _, ok := ng.deletionInProgressNodeSet[ng.nodes[i].Id]; ok {
 			klog.V(4).Infof("Found node with id %s in deletion in progress node set", ng.nodes[i].Id)

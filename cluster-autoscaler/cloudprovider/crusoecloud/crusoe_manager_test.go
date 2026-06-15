@@ -25,6 +25,7 @@ import (
 	crusoeapi "github.com/crusoecloud/client-go/swagger/v1alpha5"
 	"github.com/stretchr/testify/assert"
 	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 )
 
@@ -293,4 +294,44 @@ func TestManager_UpdateNodePool_NoLabelsOrReservation(t *testing.T) {
 	_, err := mgr.UpdateNodePool(ctx, pool, 4)
 	assert.NoError(t, err)
 	mocks.nodePoolsApi.AssertExpectations(t)
+}
+
+func TestManager_RefreshSkipsNodePoolsWithoutSpec(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+		"configured-pool": {Name: "configured-pool", MinSize: 1, MaxSize: 5},
+	}
+
+	configuredPool := crusoeapi.KubernetesNodePool{
+		Id:        "configured-pool-id",
+		Name:      "configured-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+	}
+	staticPool := crusoeapi.KubernetesNodePool{
+		Id:        "static-pool-id",
+		Name:      "static-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+	}
+
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{configuredPool, staticPool},
+			}, httpSuccessResponse(), nil,
+		)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "configured-pool-id").
+		Return(configuredPool, httpSuccessResponse(), nil)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "static-pool-id").
+		Return(staticPool, httpSuccessResponse(), nil)
+
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+
+	nodeGroups := mgr.NodeGroups()
+	assert.Len(t, nodeGroups, 1)
+	assert.Equal(t, "configured-pool", nodeGroups[0].pool.Name)
 }
