@@ -218,8 +218,17 @@ func (mgr *crusoeManager) Refresh() error {
 			continue
 		}
 
+		spec, ok := mgr.nodeGroupSpecs[p.Name]
+		if !ok {
+			klog.V(4).Infof("Skipping nodepool %s (%s): not listed in the autoscaler's node group config",
+				p.Name, p.Id)
+			continue
+		}
+
 		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
-			cachedNg.refresh()
+			if err := cachedNg.refresh(); err != nil {
+				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
+			}
 			ngs = append(ngs, cachedNg)
 		} else {
 			ng := crusoeNodeGroup{
@@ -228,10 +237,12 @@ func (mgr *crusoeManager) Refresh() error {
 				nodes:                     make(map[string]*crusoeapi.InstanceV1Alpha5),
 				deletionInProgressNodeSet: map[string]struct{}{},
 
-				spec: mgr.nodeGroupSpecs[p.Name], // if empty, use defaults
+				spec: spec,
 			}
 			// refresh to populate nodes and target size information
-			ng.refresh()
+			if err := ng.refresh(); err != nil {
+				klog.Errorf("Refresh failed for new nodepool %s: %s", p.Id, err)
+			}
 			ngs = append(ngs, &ng)
 		}
 	}

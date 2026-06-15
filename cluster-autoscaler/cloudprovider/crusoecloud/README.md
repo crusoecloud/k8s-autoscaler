@@ -14,6 +14,13 @@ In order to configure nodepool size constraints, edit the `cluster-autoscaler` d
 arguments of the form `--nodes=<min>:<max>:<nodepool>` where `<nodepool>` is the name of
 the nodepool.
 
+The autoscaler only manages nodepools that are explicitly listed in a `--nodes` argument;
+all other nodepools are ignored. **Breaking change:** older versions applied default
+bounds (min=1, max=254) to nodepools that were not listed, so the autoscaler could scale
+nodepools the user never configured. When upgrading, add a `--nodes` argument for every
+nodepool that should remain autoscaled — any nodepool without one will no longer be
+scaled up or down.
+
 ### In-cluster
 
 Edit [`examples/cluster-autoscaler.yaml`](./examples/cluster-autoscaler.yaml) to configure
