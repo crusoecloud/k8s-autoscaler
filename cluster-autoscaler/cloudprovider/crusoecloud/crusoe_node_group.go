@@ -33,7 +33,9 @@ import (
 )
 
 const (
-	instanceBatchSize = 50 // page instance fetch by this size
+	instanceBatchSize       = 50 // page instance fetch by this size
+	failedInstanceIDPrefix  = "failed-scale-up-"
+	scaleUpFailureErrorCode = "SCALE_UP_FAILED"
 )
 
 // crusoeNodeGroup implements cloudprovider.NodeGroup interface. It contains
@@ -127,10 +129,12 @@ func (ng *crusoeNodeGroup) trackIncreaseSizeAsync(poolID string, op *crusoeapi.O
 
 	finalOp, waitErr := ng.manager.WaitForNodePoolOperationComplete(ctx, op)
 	if waitErr != nil {
+		// The wait returns a nil op on error, so bail before dereferencing finalOp.
 		klog.Errorf("IncreaseSize (background),PoolID=%s, failed waiting for opID=%s: %v", poolID, op.OperationId, waitErr)
+		return
 	}
 
-	if finalOp.State == string(opFailed) {
+	if finalOp != nil && finalOp.State == string(opFailed) {
 		klog.Errorf("IncreaseSize (background),PoolID=%s, opID=%s failed: %v", poolID, op.OperationId, finalOp.Result)
 	}
 }
@@ -160,9 +164,18 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		return fmt.Errorf("failed to refresh node group before attempting to delete nodes: %v", err)
 	}
 
+	syntheticCleanup := false
 	nodeIDsToDelete := []string{}
 	ng.nodeGroupRWMutex.RLock()
+	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	for _, n := range nodes {
+		nodeID := toNodeID(n.Spec.ProviderID)
+		// The synthetic scale-up-failure instance has no VM behind it; deleting
+		// it means reconciling the pool's desired count, not terminating anything.
+		if nodeID == failedScaleUpInstanceID(ng.pool.Id) {
+			syntheticCleanup = true
+			continue
+		}
 		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
@@ -174,6 +187,17 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	ng.nodeGroupRWMutex.RUnlock()
 
 	targetSize := min(ng.targetSize-len(nodeIDsToDelete), int(ng.pool.Count))
+
+	if syntheticCleanup {
+		// Failed scale-up: reconcile desired count down to the nodes that
+		// actually exist (minus any real nodes also being deleted in this call).
+		targetSize = min(targetSize, activeNodes-len(nodeIDsToDelete))
+		if targetSize < ng.MinSize() {
+			klog.Warningf("DeleteNodes,PoolID=%s, reconciling desired count to %d, below the configured min %d",
+				ng.pool.Id, targetSize, ng.MinSize())
+		}
+	}
+
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool id=%v", len(nodes), targetSize, ng, ng.pool.Id)
 	if targetSize >= int(ng.pool.Count) {
 		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than or equal to the desired count (%d), skip updating desired count",
@@ -322,6 +346,9 @@ func (ng *crusoeNodeGroup) Debug() string {
 // required that Instance objects returned by this method have ID field set.
 // Other fields are optional.
 func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
+	ng.nodeGroupRWMutex.RLock()
+	defer ng.nodeGroupRWMutex.RUnlock()
+
 	var nodes []cloudprovider.Instance
 
 	klog.V(4).Info("Nodes,PoolID=", ng.pool.Id)
@@ -331,6 +358,28 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 			Id:     toProviderID(node.Id),
 			Status: fromCrusoeStatus(node.State),
 		})
+	}
+
+	// A pool reads UNHEALTHY only after a create attempt terminally failed
+	// while the pool is still short of its desired count. Surface that as a
+	// single synthetic errored instance so the core backs off this group.
+	if ng.pool.State == stateUnhealthy {
+		activeNodes := ng.calculateActiveNodesFromCacheLocked()
+		if int(ng.pool.Count) > activeNodes {
+			nodes = append(nodes, cloudprovider.Instance{
+				Id: toProviderID(failedScaleUpInstanceID(ng.pool.Id)),
+				Status: &cloudprovider.InstanceStatus{
+					State: cloudprovider.InstanceCreating,
+					ErrorInfo: &cloudprovider.InstanceErrorInfo{
+						ErrorClass: cloudprovider.OutOfResourcesErrorClass,
+						ErrorCode:  scaleUpFailureErrorCode,
+					},
+				},
+			})
+		} else {
+			klog.Warningf("Nodes,PoolID=%s is unhealthy but count %d <= active %d; "+
+				"not emitting scale-up-failed signal", ng.pool.Id, ng.pool.Count, activeNodes)
+		}
 	}
 
 	return nodes, nil
@@ -492,18 +541,24 @@ func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
 	ng.setTargetSizeLocked()
 }
 
+func failedScaleUpInstanceID(poolID string) string {
+	return failedInstanceIDPrefix + poolID
+}
+
 // setTargetSizeLocked should only be called when nodeGroupRWMutex is already held by the caller.
 // This method sets the target size of the node group based on the desired node count and current active nodes.
-// If the node pool is marked unhealthy, the target size defaults to the number of active nodes,
-// as the cloud provider will stop trying to fulfill the desired count.
+// We do not collapse the target to activeNodes when the pool is UNHEALTHY.
+// A failed scale-up leaves pool.Count elevated,
+// and that gap is exactly what keeps IsNodeGroupScalingUp
+// true so the autoscaler observes the synthetic errored instance from Nodes() and backs the pool off
 func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	ng.targetSize = max(int(ng.pool.Count), activeNodes)
-	if ng.pool.State == stateUnhealthy {
-		klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
-			"to the number of active nodes: %d", ng.pool.Id, activeNodes)
-		ng.targetSize = activeNodes
-	}
+	// if ng.pool.State == stateUnhealthy {
+	// 	klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
+	// 		"to the number of active nodes: %d", ng.pool.Id, activeNodes)
+	// 	ng.targetSize = activeNodes
+	// }
 
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool's current desired count is %d and it contains %d active nodes",

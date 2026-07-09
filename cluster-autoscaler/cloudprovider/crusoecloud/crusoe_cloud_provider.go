@@ -86,8 +86,12 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
+	nodeID := toNodeID(node.Spec.ProviderID)
 	for _, ng := range ccp.manager.NodeGroups() {
 		if _, ok := ng.nodes[toNodeID(node.Spec.ProviderID)]; ok {
+			return ng, nil
+		}
+		if nodeID == failedScaleUpInstanceID(ng.pool.Id) {
 			return ng, nil
 		}
 	}
