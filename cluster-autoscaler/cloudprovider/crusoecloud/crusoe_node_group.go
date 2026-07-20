@@ -176,17 +176,17 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 			syntheticCleanup = true
 			continue
 		}
-		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
+		nodeInfo, ok := ng.nodes[nodeID]
 		if !ok {
 			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
+			ng.nodeGroupRWMutex.RUnlock()
 			return fmt.Errorf("failed to find node %s (id=%s) in the node group's nodes cache", n.Name, toNodeID(n.Spec.ProviderID))
 		}
 
 		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
 	}
-	ng.nodeGroupRWMutex.RUnlock()
-
 	targetSize := min(ng.targetSize-len(nodeIDsToDelete), int(ng.pool.Count))
+	ng.nodeGroupRWMutex.RUnlock()
 
 	if syntheticCleanup {
 		// Failed scale-up: reconcile desired count down to the nodes that
@@ -197,6 +197,7 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 				ng.pool.Id, targetSize, ng.MinSize())
 		}
 	}
+	targetSize = max(0, targetSize)
 
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool id=%v", len(nodes), targetSize, ng, ng.pool.Id)
 	if targetSize >= int(ng.pool.Count) {
@@ -554,11 +555,6 @@ func failedScaleUpInstanceID(poolID string) string {
 func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	ng.targetSize = max(int(ng.pool.Count), activeNodes)
-	// if ng.pool.State == stateUnhealthy {
-	// 	klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
-	// 		"to the number of active nodes: %d", ng.pool.Id, activeNodes)
-	// 	ng.targetSize = activeNodes
-	// }
 
 	klog.V(4).Infof("current target size for node pool with id %s is %d, "+
 		"where node pool's current desired count is %d and it contains %d active nodes",
