@@ -51,6 +51,11 @@ const (
 	gpuProductLinePrefixesNvidia = "ahl"
 
 	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
+
+	// Where a node group's scaling bounds come from: the nodepool's
+	// scaling_config served by the API, or the deprecated --nodes flag.
+	boundsSourceAPI   = "api"
+	boundsSourceFlags = "flags"
 )
 
 type crusoeCloudConfig struct {
@@ -218,19 +223,24 @@ func (mgr *crusoeManager) Refresh() error {
 			continue
 		}
 
-		spec, ok := mgr.nodeGroupSpecs[p.Name]
-		if !ok {
-			klog.V(4).Infof("Skipping nodepool %s (%s): not listed in the autoscaler's node group config",
-				p.Name, p.Id)
+		spec, boundsSource := mgr.resolveNodeGroupSpec(&p)
+		if spec == nil {
 			continue
 		}
+		klog.V(4).Infof("Nodepool %s (%s): scaling bounds [%d, %d], source=%s",
+			p.Name, p.Id, spec.MinSize, spec.MaxSize, boundsSource)
 
 		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
+			cachedNg.spec = spec
 			if err := cachedNg.refresh(); err != nil {
 				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
 			}
 			ngs = append(ngs, cachedNg)
 		} else {
+			if boundsSource == boundsSourceFlags {
+				klog.Warningf("Nodepool %s (%s) is autoscaled from the deprecated --nodes flag; "+
+					"configure scaling_config on the nodepool instead", p.Name, p.Id)
+			}
 			ng := crusoeNodeGroup{
 				manager:                   mgr,
 				pool:                      &p,
@@ -251,6 +261,50 @@ func (mgr *crusoeManager) Refresh() error {
 	mgr.nodeGroups = ngs
 
 	return nil
+}
+
+// resolveNodeGroupSpec decides whether this autoscaler manages a pool, and with
+// which bounds. Pools with autoscaling enabled are bounded by their
+// scaling_config. Pools that never had a scaling_config configured fall back to
+// the deprecated --nodes flag entry, if any. Paused pools (autoscaling disabled
+// with bounds retained) and pools serving invalid bounds are skipped: a nil
+// spec is returned and the reason logged.
+func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePool) (*dynamic.NodeGroupSpec, string) {
+	sc := pool.ScalingConfig
+	if sc != nil && sc.Enabled {
+		spec := &dynamic.NodeGroupSpec{
+			Name:               pool.Name,
+			MinSize:            int(sc.MinNodeSize),
+			MaxSize:            int(sc.MaxNodeSize),
+			SupportScaleToZero: scaleToZeroSupported,
+		}
+		if err := spec.Validate(); err != nil {
+			klog.Warningf("Skipping nodepool %s (%s): invalid scaling_config bounds [%d, %d]: %v",
+				pool.Name, pool.Id, sc.MinNodeSize, sc.MaxNodeSize, err)
+			return nil, ""
+		}
+		if spec.MaxSize < 1 {
+			klog.Warningf("Skipping nodepool %s (%s): invalid scaling_config bounds [%d, %d]: max node size must be >= 1",
+				pool.Name, pool.Id, sc.MinNodeSize, sc.MaxNodeSize)
+			return nil, ""
+		}
+		return spec, boundsSourceAPI
+	}
+
+	if sc != nil && (sc.MinNodeSize != 0 || sc.MaxNodeSize != 0) {
+		// Disabled with retained bounds: autoscaling was paused by the user.
+		klog.V(4).Infof("Skipping nodepool %s (%s): autoscaling is paused", pool.Name, pool.Id)
+		return nil, ""
+	}
+
+	// Never configured: fall back to the deprecated --nodes flag entry.
+	spec, ok := mgr.nodeGroupSpecs[pool.Name]
+	if !ok {
+		klog.V(4).Infof("Skipping nodepool %s (%s): no scaling_config and not listed in the autoscaler's node group config",
+			pool.Name, pool.Id)
+		return nil, ""
+	}
+	return spec, boundsSourceFlags
 }
 
 func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.KubernetesNodePool, error) {

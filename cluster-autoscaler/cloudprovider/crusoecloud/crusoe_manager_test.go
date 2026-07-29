@@ -119,3 +119,210 @@ func TestManager_RefreshSkipsNodePoolsWithoutSpec(t *testing.T) {
 	assert.Len(t, nodeGroups, 1)
 	assert.Equal(t, "configured-pool", nodeGroups[0].pool.Name)
 }
+
+func TestManager_RefreshBoundsFromScalingConfig(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+	// pool also has a flag entry with different bounds: the API bounds must win
+	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+		"autoscaled-pool": {Name: "autoscaled-pool", MinSize: 1, MaxSize: 2},
+	}
+
+	pool := crusoeapi.KubernetesNodePool{
+		Id:        "autoscaled-pool-id",
+		Name:      "autoscaled-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     true,
+			MinNodeSize: 0,
+			MaxNodeSize: 5,
+		},
+	}
+
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{pool},
+			}, httpSuccessResponse(), nil,
+		)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "autoscaled-pool-id").
+		Return(pool, httpSuccessResponse(), nil)
+
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+
+	nodeGroups := mgr.NodeGroups()
+	assert.Len(t, nodeGroups, 1)
+	assert.Equal(t, 0, nodeGroups[0].MinSize())
+	assert.Equal(t, 5, nodeGroups[0].MaxSize())
+}
+
+func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+	// a flag entry must not resurrect a paused pool
+	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+		"paused-pool": {Name: "paused-pool", MinSize: 1, MaxSize: 5},
+	}
+
+	pausedPool := crusoeapi.KubernetesNodePool{
+		Id:        "paused-pool-id",
+		Name:      "paused-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     false,
+			MinNodeSize: 2,
+			MaxNodeSize: 3,
+		},
+	}
+
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{pausedPool},
+			}, httpSuccessResponse(), nil,
+		)
+
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+	assert.Empty(t, mgr.NodeGroups())
+}
+
+func TestManager_RefreshNeverConfiguredFallsBackToFlags(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+		"legacy-pool": {Name: "legacy-pool", MinSize: 1, MaxSize: 4},
+	}
+
+	// never-configured pool as served by a new gateway: disabled, zero bounds
+	legacyPool := crusoeapi.KubernetesNodePool{
+		Id:        "legacy-pool-id",
+		Name:      "legacy-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     false,
+			MinNodeSize: 0,
+			MaxNodeSize: 0,
+		},
+	}
+
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{legacyPool},
+			}, httpSuccessResponse(), nil,
+		)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "legacy-pool-id").
+		Return(legacyPool, httpSuccessResponse(), nil)
+
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+
+	nodeGroups := mgr.NodeGroups()
+	assert.Len(t, nodeGroups, 1)
+	assert.Equal(t, 1, nodeGroups[0].MinSize())
+	assert.Equal(t, 4, nodeGroups[0].MaxSize())
+}
+
+func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+
+	minAboveMaxPool := crusoeapi.KubernetesNodePool{
+		Id:        "min-above-max-pool-id",
+		Name:      "min-above-max-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     true,
+			MinNodeSize: 5,
+			MaxNodeSize: 2,
+		},
+	}
+	zeroMaxPool := crusoeapi.KubernetesNodePool{
+		Id:        "zero-max-pool-id",
+		Name:      "zero-max-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     true,
+			MinNodeSize: 0,
+			MaxNodeSize: 0,
+		},
+	}
+
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{minAboveMaxPool, zeroMaxPool},
+			}, httpSuccessResponse(), nil,
+		)
+
+	// invalid bounds skip the pool but must not fail the refresh
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+	assert.Empty(t, mgr.NodeGroups())
+}
+
+func TestManager_RefreshUpdatesBoundsAcrossRefreshes(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+
+	poolBefore := crusoeapi.KubernetesNodePool{
+		Id:        "autoscaled-pool-id",
+		Name:      "autoscaled-pool",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     true,
+			MinNodeSize: 1,
+			MaxNodeSize: 3,
+		},
+	}
+	poolAfter := poolBefore
+	poolAfter.ScalingConfig = &crusoeapi.KubernetesNodePoolScalingConfig{
+		Enabled:     true,
+		MinNodeSize: 2,
+		MaxNodeSize: 6,
+	}
+
+	listOpts := &crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID, listOpts).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{poolBefore},
+			}, httpSuccessResponse(), nil,
+		).Once()
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID, listOpts).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{poolAfter},
+			}, httpSuccessResponse(), nil,
+		).Once()
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "autoscaled-pool-id").
+		Return(poolBefore, httpSuccessResponse(), nil)
+
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+	nodeGroups := mgr.NodeGroups()
+	assert.Len(t, nodeGroups, 1)
+	assert.Equal(t, 1, nodeGroups[0].MinSize())
+	assert.Equal(t, 3, nodeGroups[0].MaxSize())
+
+	err = mgr.Refresh()
+	assert.NoError(t, err)
+	refreshedNodeGroups := mgr.NodeGroups()
+	assert.Len(t, refreshedNodeGroups, 1)
+	// same cached node group, updated bounds
+	assert.Same(t, nodeGroups[0], refreshedNodeGroups[0])
+	assert.Equal(t, 2, refreshedNodeGroups[0].MinSize())
+	assert.Equal(t, 6, refreshedNodeGroups[0].MaxSize())
+}
