@@ -264,11 +264,14 @@ func (mgr *crusoeManager) Refresh() error {
 }
 
 // resolveNodeGroupSpec decides whether this autoscaler manages a pool, and with
-// which bounds. Pools with autoscaling enabled are bounded by their
-// scaling_config. Pools that never had a scaling_config configured fall back to
-// the deprecated --nodes flag entry, if any. Paused pools (autoscaling disabled
-// with bounds retained) and pools serving invalid bounds are skipped: a nil
-// spec is returned and the reason logged.
+// which bounds. Block presence is the classifier: pools with autoscaling
+// enabled are bounded by their scaling_config; pools serving no block never
+// configured autoscaling and fall back to the deprecated --nodes flag entry,
+// if any. Paused pools (block present, disabled — bounds retained, even
+// [0, 0]) and pools serving invalid bounds are skipped: a nil spec is
+// returned and the reason logged. Bounds are never inspected to classify —
+// the gateway serves no block for never-configured pools precisely so that a
+// pool paused at [0, 0] is not mistaken for one that never adopted the API.
 func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePool) (*dynamic.NodeGroupSpec, string) {
 	sc := pool.ScalingConfig
 	if sc != nil && sc.Enabled {
@@ -278,26 +281,23 @@ func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePoo
 			MaxSize:            int(sc.MaxNodeSize),
 			SupportScaleToZero: scaleToZeroSupported,
 		}
+		// [0, 0] is legal and passes: the group registers pinned at zero and
+		// CA's own math keeps it inert (scale-up requires target < MaxSize).
 		if err := spec.Validate(); err != nil {
 			klog.Warningf("Skipping nodepool %s (%s): invalid scaling_config bounds [%d, %d]: %v",
 				pool.Name, pool.Id, sc.MinNodeSize, sc.MaxNodeSize, err)
 			return nil, ""
 		}
-		if spec.MaxSize < 1 {
-			klog.Warningf("Skipping nodepool %s (%s): invalid scaling_config bounds [%d, %d]: max node size must be >= 1",
-				pool.Name, pool.Id, sc.MinNodeSize, sc.MaxNodeSize)
-			return nil, ""
-		}
 		return spec, boundsSourceAPI
 	}
 
-	if sc != nil && (sc.MinNodeSize != 0 || sc.MaxNodeSize != 0) {
-		// Disabled with retained bounds: autoscaling was paused by the user.
+	if sc != nil {
+		// Disabled with bounds retained: autoscaling was paused by the user.
 		klog.V(4).Infof("Skipping nodepool %s (%s): autoscaling is paused", pool.Name, pool.Id)
 		return nil, ""
 	}
 
-	// Never configured: fall back to the deprecated --nodes flag entry.
+	// No block: never configured. Fall back to the deprecated --nodes flag entry.
 	spec, ok := mgr.nodeGroupSpecs[pool.Name]
 	if !ok {
 		klog.V(4).Infof("Skipping nodepool %s (%s): no scaling_config and not listed in the autoscaler's node group config",

@@ -164,7 +164,8 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 	mgr, mocks := testManagerWithMocks()
 	// a flag entry must not resurrect a paused pool
 	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
-		"paused-pool": {Name: "paused-pool", MinSize: 1, MaxSize: 5},
+		"paused-pool":        {Name: "paused-pool", MinSize: 1, MaxSize: 5},
+		"parked-then-paused": {Name: "parked-then-paused", MinSize: 1, MaxSize: 10},
 	}
 
 	pausedPool := crusoeapi.KubernetesNodePool{
@@ -178,12 +179,26 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 			MaxNodeSize: 3,
 		},
 	}
+	// paused at [0, 0]: block presence alone marks it as configured — it must
+	// be skipped, not mistaken for never-configured and handed to the flags
+	// fallback (which would scale the deliberately parked pool back up)
+	parkedThenPausedPool := crusoeapi.KubernetesNodePool{
+		Id:        "parked-then-paused-id",
+		Name:      "parked-then-paused",
+		ClusterId: testClusterID,
+		State:     stateRunning,
+		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+			Enabled:     false,
+			MinNodeSize: 0,
+			MaxNodeSize: 0,
+		},
+	}
 
 	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
 		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
 		Return(
 			crusoeapi.ListKubernetesNodePoolsResponse{
-				Items: []crusoeapi.KubernetesNodePool{pausedPool},
+				Items: []crusoeapi.KubernetesNodePool{pausedPool, parkedThenPausedPool},
 			}, httpSuccessResponse(), nil,
 		)
 
@@ -199,17 +214,13 @@ func TestManager_RefreshNeverConfiguredFallsBackToFlags(t *testing.T) {
 		"legacy-pool": {Name: "legacy-pool", MinSize: 1, MaxSize: 4},
 	}
 
-	// never-configured pool as served by a new gateway: disabled, zero bounds
+	// never-configured pool as served by the gateway: no scaling_config block
+	// at all (the gateway omits it when the pool's bounds were never set)
 	legacyPool := crusoeapi.KubernetesNodePool{
 		Id:        "legacy-pool-id",
 		Name:      "legacy-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
-			Enabled:     false,
-			MinNodeSize: 0,
-			MaxNodeSize: 0,
-		},
 	}
 
 	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
@@ -246,9 +257,30 @@ func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
 			MaxNodeSize: 2,
 		},
 	}
-	zeroMaxPool := crusoeapi.KubernetesNodePool{
-		Id:        "zero-max-pool-id",
-		Name:      "zero-max-pool",
+	mocks.nodePoolsApi.On("ListNodePools", ctx, testProjectID,
+		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
+		Return(
+			crusoeapi.ListKubernetesNodePoolsResponse{
+				Items: []crusoeapi.KubernetesNodePool{minAboveMaxPool},
+			}, httpSuccessResponse(), nil,
+		)
+
+	// invalid bounds skip the pool but must not fail the refresh
+	err := mgr.Refresh()
+	assert.NoError(t, err)
+	assert.Empty(t, mgr.NodeGroups())
+}
+
+// A pool enabled at [0, 0] is deliberately parked: it registers as a managed
+// node group pinned at zero (visible in CA's status) rather than being
+// skipped. CA's own math keeps it inert — scale-up requires target < MaxSize.
+func TestManager_RefreshParkedAtZeroPoolRegistersInert(t *testing.T) {
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+
+	parkedPool := crusoeapi.KubernetesNodePool{
+		Id:        "parked-pool-id",
+		Name:      "parked-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
 		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
@@ -262,14 +294,19 @@ func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
 		&crusoeapi.KubernetesNodePoolsApiListNodePoolsOpts{ClusterId: optional.NewString(testClusterID)}).
 		Return(
 			crusoeapi.ListKubernetesNodePoolsResponse{
-				Items: []crusoeapi.KubernetesNodePool{minAboveMaxPool, zeroMaxPool},
+				Items: []crusoeapi.KubernetesNodePool{parkedPool},
 			}, httpSuccessResponse(), nil,
 		)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, "parked-pool-id").
+		Return(parkedPool, httpSuccessResponse(), nil)
 
-	// invalid bounds skip the pool but must not fail the refresh
 	err := mgr.Refresh()
 	assert.NoError(t, err)
-	assert.Empty(t, mgr.NodeGroups())
+
+	nodeGroups := mgr.NodeGroups()
+	assert.Len(t, nodeGroups, 1)
+	assert.Equal(t, 0, nodeGroups[0].MinSize())
+	assert.Equal(t, 0, nodeGroups[0].MaxSize())
 }
 
 func TestManager_RefreshUpdatesBoundsAcrossRefreshes(t *testing.T) {
