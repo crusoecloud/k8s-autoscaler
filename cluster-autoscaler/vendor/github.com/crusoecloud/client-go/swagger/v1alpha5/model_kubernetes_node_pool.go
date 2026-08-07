@@ -9,26 +9,44 @@
 package swagger
 
 type KubernetesNodePool struct {
-	// The ID of the Kubernetes cluster this node pool belongs to.
+	// ID of the Kubernetes cluster the node pool belongs to.
 	ClusterId string `json:"cluster_id"`
-	// Number of nodes within the node pool.
+	// Number of nodes in the node pool.
 	Count int64 `json:"count"`
+	// Creation timestamp of the node pool, in RFC3339 format.
+	CreatedAt string `json:"created_at"`
+	// Whether the first local ephemeral NVMe disk is used for containerd storage.
+	EphemeralStorageForContainerd bool `json:"ephemeral_storage_for_containerd"`
 	// ID of the node pool.
 	Id string `json:"id"`
-	// Image Unique identifier for the Kubernetes node pool.
+	// ID of the image used for the node pool.
 	ImageId string `json:"image_id"`
-	// List of IDs of instances within the node pool.
+	// Details about the instances within the node pool.
+	InstanceDetails []InstanceDetails `json:"instance_details,omitempty"`
+	// IDs of the instances within the node pool.
 	InstanceIds []string `json:"instance_ids"`
 	// Name of the node pool.
 	Name string `json:"name"`
-	// Labels associated with the node pool.
+	// Labels assigned to nodes in the node pool.
 	NodeLabels map[string]string `json:"node_labels"`
-	// The ID of the project this Kubernetes node pool belongs to.
+	// Taints applied to nodes in the node pool.
+	NodeTaints []KubernetesNodeTaint `json:"node_taints"`
+	// NVLink domain ID assigned to the node pool.
+	NvlinkDomainId string `json:"nvlink_domain_id,omitempty"`
+	// ID of the project that owns the node pool.
 	ProjectId string `json:"project_id"`
-	// State of the node pool
+	// Public IP type for the node pool's nodes: dynamic, static, or none.
+	PublicIpType string `json:"public_ip_type,omitempty"`
+	// ID of the billing reservation associated with the node pool.
+	ReservationId string `json:"reservation_id"`
+	// Autoscaling configuration for the node pool.
+	ScalingConfig *KubernetesNodePoolScalingConfig `json:"scaling_config,omitempty"`
+	// Current state of the node pool.
 	State string `json:"state"`
-	// The ID of the subnet this node pool belongs to.
+	// ID of the subnet the node pool belongs to.
 	SubnetId string `json:"subnet_id"`
-	// VM type of the node pool
+	// VM type of the node pool.
 	Type_ string `json:"type"`
+	// Last update timestamp of the node pool, in RFC3339 format.
+	UpdatedAt string `json:"updated_at"`
 }

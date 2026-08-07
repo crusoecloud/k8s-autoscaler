@@ -9,5 +9,5 @@
 package swagger
 
 type GetOrgMfaResponse struct {
-	MfaMethods []string `json:"mfa_methods,omitempty"`
+	MfaMethods []OrganizationMfa `json:"mfa_methods"`
 }

@@ -9,21 +9,26 @@
 package swagger
 
 type InstanceTemplatePostRequestV1Alpha5 struct {
-	// Disks to create for all VMs created from this instance template.
+	// Custom image to use for all VMs created from this instance template. Only one of Image or CustomImage should be supplied at once.
+	CustomImageName string `json:"custom_image_name,omitempty"`
+	// Disks to attach to all VMs created from this instance template.
 	Disks []DiskTemplate `json:"disks,omitempty"`
-	// IB Partition to use for all VMs created from this instance template. Should only be provided for IB-enabled VM types. This is location-specific and must be provided if location is provided.
+	// Deprecated: Use transport_partition_id instead.
 	IbPartitionId string `json:"ib_partition_id,omitempty"`
 	// OS Image to use for all VMs created from this instance template.
 	ImageName string `json:"image_name,omitempty"`
 	// Location to use for all VMs created from this instance template. If provided, all location-specific resources must also be provided.
 	Location string `json:"location,omitempty"`
-	// THe Host Maintenance Policy to use.
+	// Host maintenance policy controlling how VMs created from this instance template behave during host maintenance.
 	MaintenancePolicy string `json:"maintenance_policy,omitempty"`
-	// The VM Placement Policy to use.
+	// NVLink domain to assign to all VMs created from this instance template.
+	NvlinkDomainId string `json:"nvlink_domain_id,omitempty"`
+	// Placement policy controlling how VMs created from this instance template are distributed across hosts: spread or unspecified.
 	PlacementPolicy string `json:"placement_policy,omitempty"`
 	// Public IP address type to use for all VMs created from this instance template. Must either be \"static\" or \"dynamic\".
 	PublicIpAddressType string `json:"public_ip_address_type,omitempty"`
-	ReservationId       string `json:"reservation_id,omitempty"`
+	// Reservation to use for all VMs created from this instance template.
+	ReservationId string `json:"reservation_id,omitempty"`
 	// Shutdown script to use for all VMs created from this instance template.
 	ShutdownScript string `json:"shutdown_script,omitempty"`
 	// SSH public key to use for all VMs created from this instance template.
@@ -34,6 +39,8 @@ type InstanceTemplatePostRequestV1Alpha5 struct {
 	SubnetId string `json:"subnet_id,omitempty"`
 	// Name of the instance template. (This is not the name of the VMs created from this instance template.)
 	TemplateName string `json:"template_name"`
+	// IB or RoCE partition to use for all VMs created from this instance template. Should only be provided for transport-enabled VM types. This is location-specific and must be provided if location is provided.
+	TransportPartitionId string `json:"transport_partition_id,omitempty"`
 	// Product name of the VM type we want to create from this instance template.
 	Type_                  string                  `json:"type"`
 	VirtualizationFeatures *VirtualizationFeatures `json:"virtualization_features,omitempty"`

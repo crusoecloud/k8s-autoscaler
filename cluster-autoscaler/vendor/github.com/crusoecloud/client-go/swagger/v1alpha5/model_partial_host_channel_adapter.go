@@ -9,5 +9,8 @@
 package swagger
 
 type PartialHostChannelAdapter struct {
+	// Deprecated: Use transport_partition_id instead.
 	IbPartitionId string `json:"ib_partition_id,omitempty"`
+	// ID of the transport partition to assign the host channel adapter to.
+	TransportPartitionId string `json:"transport_partition_id,omitempty"`
 }

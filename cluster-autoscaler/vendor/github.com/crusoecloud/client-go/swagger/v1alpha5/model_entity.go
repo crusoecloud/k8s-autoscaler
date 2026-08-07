@@ -11,13 +11,16 @@ package swagger
 type Entity struct {
 	Billing          *Billing               `json:"billing"`
 	BillingAddr      *BillingAddress        `json:"billing_addr,omitempty"`
+	CompanyName      string                 `json:"company_name,omitempty"`
 	Features         map[string]interface{} `json:"features"`
 	Id               string                 `json:"id"`
-	MfaMethods       []string               `json:"mfa_methods,omitempty"`
+	MfaMethods       []OrganizationMfa      `json:"mfa_methods,omitempty"`
 	Name             string                 `json:"name"`
 	OrganizationType string                 `json:"organization_type,omitempty"`
 	RegistrationType string                 `json:"registration_type,omitempty"`
 	Relation         string                 `json:"relation"`
 	State            string                 `json:"state"`
 	StateReason      string                 `json:"state_reason"`
+	TaxId            string                 `json:"tax_id,omitempty"`
+	TaxIdType        string                 `json:"tax_id_type,omitempty"`
 }

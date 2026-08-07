@@ -83,9 +83,10 @@ build_and_push_image:
       # Build for amd64 architecture
       make build-arch-amd64
 
-      # Set registry info and target tag
+      # Set registry info and target tag. Use the slug, not the ref name:
+      # branch names may contain slashes, which are invalid in docker tags.
       export REGISTRY="$REGISTRY"
-      export TAG="$CI_COMMIT_REF_NAME"
+      export TAG="$CI_COMMIT_REF_SLUG"
       export ALL_ARCH="$ALL_ARCH"
 
       # Build, then push manifest

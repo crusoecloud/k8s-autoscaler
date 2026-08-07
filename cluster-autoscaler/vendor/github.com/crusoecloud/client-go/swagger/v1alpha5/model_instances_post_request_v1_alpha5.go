@@ -11,19 +11,37 @@ package swagger
 // InstancesPostRequestV1Alpha5 is the request type for POST requests to the vms.instances endpoint.
 type InstancesPostRequestV1Alpha5 struct {
 	// commitment is no longer supported
-	CommitmentPeriod    int64                       `json:"commitment_period,omitempty"`
-	Disks               []DiskAttachment            `json:"disks,omitempty"`
+	CommitmentPeriod int64 `json:"commitment_period,omitempty"`
+	// Installation mode for the Crusoe Watch Agent: docker or native. Defaults to docker.
+	CrusoeWatchAgentInstallMode string `json:"crusoe_watch_agent_install_mode,omitempty"`
+	// ID of a custom image to use for the new VM. Either image or custom_image should be supplied, not both.
+	CustomImage string `json:"custom_image,omitempty"`
+	// Disks to attach to the new VM.
+	Disks []DiskAttachment `json:"disks,omitempty"`
+	// Host channel adapters to attach to the new VM.
 	HostChannelAdapters []PartialHostChannelAdapter `json:"host_channel_adapters,omitempty"`
-	Image               string                      `json:"image,omitempty"`
-	Location            string                      `json:"location"`
-	// The Host Maintenance Policy to use.
-	MaintenancePolicy        string                    `json:"maintenance_policy,omitempty"`
-	Name                     string                    `json:"name"`
-	NetworkInterfaces        []NetworkInterface        `json:"network_interfaces,omitempty"`
+	// Name of the OS image to use for the new VM. Either image or custom_image should be supplied, not both.
+	Image string `json:"image,omitempty"`
+	// Whether to install the Crusoe Watch Agent on the VM. Defaults to true.
+	InstallCrusoeWatchAgent *bool `json:"install_crusoe_watch_agent,omitempty"`
+	// Location to create the VM in.
+	Location string `json:"location"`
+	// Host maintenance policy to apply to the new VM: manual, stop-vm, or unspecified.
+	MaintenancePolicy string `json:"maintenance_policy,omitempty"`
+	// Name for the new VM.
+	Name string `json:"name"`
+	// Network interfaces to attach to the new VM.
+	NetworkInterfaces []NetworkInterface `json:"network_interfaces,omitempty"`
+	// ID of the NVLink domain to create the VM in.
+	NvlinkDomainId           string                    `json:"nvlink_domain_id,omitempty"`
 	ReservationSpecification *ReservationSpecification `json:"reservation_specification,omitempty"`
-	ShutdownScript           string                    `json:"shutdown_script,omitempty"`
-	SshPublicKey             string                    `json:"ssh_public_key"`
-	StartupScript            string                    `json:"startup_script,omitempty"`
-	Type_                    string                    `json:"type"`
-	VirtualizationFeatures   *VirtualizationFeatures   `json:"virtualization_features,omitempty"`
+	// Script to run when the VM shuts down.
+	ShutdownScript string `json:"shutdown_script,omitempty"`
+	// SSH public key to grant access to the new VM.
+	SshPublicKey string `json:"ssh_public_key"`
+	// Script to run when the VM starts.
+	StartupScript string `json:"startup_script,omitempty"`
+	// Product name of the VM type to create.
+	Type_                  string                  `json:"type"`
+	VirtualizationFeatures *VirtualizationFeatures `json:"virtualization_features,omitempty"`
 }

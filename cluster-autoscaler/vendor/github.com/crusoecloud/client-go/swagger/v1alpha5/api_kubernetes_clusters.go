@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/antihax/optional"
 )
 
 // Linger please
@@ -25,11 +27,10 @@ var (
 type KubernetesClustersApiService service
 
 /*
-KubernetesClustersApiService Create a new Kubernetes cluster owned by the logged in user.
-A successful response from this resource will contain the async operation.
+KubernetesClustersApiService Creates a Kubernetes cluster in the project and returns the async operation.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
   - @param body
-  - @param projectId
+  - @param projectId ID of the project to create the cluster in.
 
 @return AsyncOperationResponse
 */
@@ -155,10 +156,10 @@ func (a *KubernetesClustersApiService) CreateCluster(ctx context.Context, body K
 }
 
 /*
-KubernetesClustersApiService Delete a cluster that the logged in user owns.
+KubernetesClustersApiService Deletes a Kubernetes cluster from the project and returns the async operation.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-  - @param clusterId
+  - @param projectId ID of the project that owns the cluster.
+  - @param clusterId ID of the cluster.
 
 @return AsyncOperationResponse
 */
@@ -273,10 +274,10 @@ func (a *KubernetesClustersApiService) DeleteCluster(ctx context.Context, projec
 }
 
 /*
-KubernetesClustersApiService Retrieve information about a particular Kubernetes cluster belonged to the project.
+KubernetesClustersApiService Returns details for a single Kubernetes cluster in the project.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-  - @param clusterId
+  - @param projectId ID of the project that owns the cluster.
+  - @param clusterId ID of the cluster.
 
 @return KubernetesCluster
 */
@@ -381,20 +382,26 @@ func (a *KubernetesClustersApiService) GetCluster(ctx context.Context, projectId
 }
 
 /*
-KubernetesClustersApiService Retrieve credentials for the user to authenticate to the specified cluster.
-  - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-  - @param clusterId
-
-@return KubernetesAuthenticationClientCertificateDetails
+KubernetesClustersApiService Returns credentials for the user to authenticate to the cluster.
+ * @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ * @param projectId ID of the project that owns the cluster.
+ * @param clusterId ID of the cluster.
+ * @param optional nil or *KubernetesClustersApiGetClusterCredentialsOpts - Optional Parameters:
+     * @param "AuthType" (optional.String) -  Type of credentials to return: oidc or admin_cert.
+@return KubernetesAuthenticationDetails
 */
-func (a *KubernetesClustersApiService) GetClusterCredentials(ctx context.Context, projectId string, clusterId string) (KubernetesAuthenticationClientCertificateDetails, *http.Response, error) {
+
+type KubernetesClustersApiGetClusterCredentialsOpts struct {
+	AuthType optional.String
+}
+
+func (a *KubernetesClustersApiService) GetClusterCredentials(ctx context.Context, projectId string, clusterId string, localVarOptionals *KubernetesClustersApiGetClusterCredentialsOpts) (KubernetesAuthenticationDetails, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Post")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue KubernetesAuthenticationClientCertificateDetails
+		localVarReturnValue KubernetesAuthenticationDetails
 	)
 
 	// create path and map variables
@@ -406,6 +413,9 @@ func (a *KubernetesClustersApiService) GetClusterCredentials(ctx context.Context
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	if localVarOptionals != nil && localVarOptionals.AuthType.IsSet() {
+		localVarQueryParams.Add("auth_type", parameterToString(localVarOptionals.AuthType.Value(), ""))
+	}
 	// to determine the Content-Type header
 	localVarHttpContentTypes := []string{}
 
@@ -453,7 +463,7 @@ func (a *KubernetesClustersApiService) GetClusterCredentials(ctx context.Context
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v KubernetesAuthenticationClientCertificateDetails
+			var v KubernetesAuthenticationDetails
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -509,13 +519,37 @@ func (a *KubernetesClustersApiService) GetClusterCredentials(ctx context.Context
 }
 
 /*
-KubernetesClustersApiService Retrieve information about Kubernetes clusters belonged to the project.
-  - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-
+KubernetesClustersApiService Lists all Kubernetes clusters in the project and returns their details.
+ * @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ * @param projectId ID of the project that owns the clusters.
+ * @param optional nil or *KubernetesClustersApiListClustersOpts - Optional Parameters:
+     * @param "ClusterId" (optional.String) -  Filters results to the cluster with this ID.
+     * @param "ClusterName" (optional.String) -  Filters results to the cluster with this name.
+     * @param "ClusterSearchNames" (optional.Interface of []string) -  Filters results to clusters whose name matches one of these search names.
+     * @param "Locations" (optional.Interface of []string) -  Filters results to clusters in these locations.
+     * @param "States" (optional.Interface of []string) -  Filters results to clusters in these states.
+     * @param "Versions" (optional.Interface of []string) -  Filters results to clusters running these versions.
+     * @param "Sort" (optional.String) -  Field to sort results by; prefix with &#x27;-&#x27; for descending order.
+     * @param "ShowInactive" (optional.Bool) -  Whether to include inactive clusters in the results.
+     * @param "NextToken" (optional.String) -  Base64-encoded token for the next page of results.
+     * @param "PrevToken" (optional.String) -  Base64-encoded token for the previous page of results.
 @return ListKubernetesClustersResponse
 */
-func (a *KubernetesClustersApiService) ListClusters(ctx context.Context, projectId string) (ListKubernetesClustersResponse, *http.Response, error) {
+
+type KubernetesClustersApiListClustersOpts struct {
+	ClusterId          optional.String
+	ClusterName        optional.String
+	ClusterSearchNames optional.Interface
+	Locations          optional.Interface
+	States             optional.Interface
+	Versions           optional.Interface
+	Sort               optional.String
+	ShowInactive       optional.Bool
+	NextToken          optional.String
+	PrevToken          optional.String
+}
+
+func (a *KubernetesClustersApiService) ListClusters(ctx context.Context, projectId string, localVarOptionals *KubernetesClustersApiListClustersOpts) (ListKubernetesClustersResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
@@ -532,6 +566,36 @@ func (a *KubernetesClustersApiService) ListClusters(ctx context.Context, project
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	if localVarOptionals != nil && localVarOptionals.ClusterId.IsSet() {
+		localVarQueryParams.Add("cluster_id", parameterToString(localVarOptionals.ClusterId.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.ClusterName.IsSet() {
+		localVarQueryParams.Add("cluster_name", parameterToString(localVarOptionals.ClusterName.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.ClusterSearchNames.IsSet() {
+		localVarQueryParams.Add("cluster_search_names", parameterToString(localVarOptionals.ClusterSearchNames.Value(), "csv"))
+	}
+	if localVarOptionals != nil && localVarOptionals.Locations.IsSet() {
+		localVarQueryParams.Add("locations", parameterToString(localVarOptionals.Locations.Value(), "csv"))
+	}
+	if localVarOptionals != nil && localVarOptionals.States.IsSet() {
+		localVarQueryParams.Add("states", parameterToString(localVarOptionals.States.Value(), "csv"))
+	}
+	if localVarOptionals != nil && localVarOptionals.Versions.IsSet() {
+		localVarQueryParams.Add("versions", parameterToString(localVarOptionals.Versions.Value(), "csv"))
+	}
+	if localVarOptionals != nil && localVarOptionals.Sort.IsSet() {
+		localVarQueryParams.Add("sort", parameterToString(localVarOptionals.Sort.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.ShowInactive.IsSet() {
+		localVarQueryParams.Add("show_inactive", parameterToString(localVarOptionals.ShowInactive.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.NextToken.IsSet() {
+		localVarQueryParams.Add("next_token", parameterToString(localVarOptionals.NextToken.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.PrevToken.IsSet() {
+		localVarQueryParams.Add("prev_token", parameterToString(localVarOptionals.PrevToken.Value(), ""))
+	}
 	// to determine the Content-Type header
 	localVarHttpContentTypes := []string{}
 
@@ -615,11 +679,11 @@ func (a *KubernetesClustersApiService) ListClusters(ctx context.Context, project
 }
 
 /*
-KubernetesClustersApiService Update a cluster that the logged in user owns.
+KubernetesClustersApiService Updates a Kubernetes cluster in the project and returns the async operation.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
   - @param body
-  - @param projectId
-  - @param clusterId
+  - @param projectId ID of the project that owns the cluster.
+  - @param clusterId ID of the cluster.
 
 @return AsyncOperationResponse
 */

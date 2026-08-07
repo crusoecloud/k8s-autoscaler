@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/antihax/optional"
 )
 
 // Linger please
@@ -25,15 +27,15 @@ var (
 type LoadBalancersApiService service
 
 /*
-LoadBalancersApiService Create a new load balancer owned by the logged in user.
-A successful response from this resource will contain the async operation.
+LoadBalancersApiService Creates an external load balancer in the project and returns the async operation.
+This endpoint creates a new external load balancer in the specified project. The request must include the VPC ID, name, location, and at least one listen port with its associated backends.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param body
-  - @param projectId
+  - @param body Request body for creating the external load balancer.
+  - @param projectId The project ID to which the external load balancer belongs.
 
 @return AsyncOperationResponse
 */
-func (a *LoadBalancersApiService) CreateLoadBalancer(ctx context.Context, body LoadBalancersPostRequest, projectId string) (AsyncOperationResponse, *http.Response, error) {
+func (a *LoadBalancersApiService) CreateExternalLoadBalancer(ctx context.Context, body ExternalLoadBalancerPostRequest, projectId string) (AsyncOperationResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Post")
 		localVarPostBody    interface{}
@@ -108,16 +110,6 @@ func (a *LoadBalancersApiService) CreateLoadBalancer(ctx context.Context, body L
 			newErr.model = v
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
-		if localVarHttpResponse.StatusCode == 400 {
-			var v InlineResponse400
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
 		if localVarHttpResponse.StatusCode == 401 {
 			var v InlineResponse401
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
@@ -155,15 +147,15 @@ func (a *LoadBalancersApiService) CreateLoadBalancer(ctx context.Context, body L
 }
 
 /*
-LoadBalancersApiService Delete a load balancer owned by the logged in user.
-A successful response from this resource will contain the async operation.
+LoadBalancersApiService Deletes an external load balancer from the project and returns the async operation.
+This endpoint deletes an external load balancer identified by its ID within the specified project. No request body or query parameters are required.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-  - @param loadBalancerId
+  - @param projectId The project ID to which the external load balancer belongs.
+  - @param loadBalancerId The ID of the external load balancer to delete.
 
 @return AsyncOperationResponse
 */
-func (a *LoadBalancersApiService) DeleteLoadBalancer(ctx context.Context, projectId string, loadBalancerId string) (AsyncOperationResponse, *http.Response, error) {
+func (a *LoadBalancersApiService) DeleteExternalLoadBalancer(ctx context.Context, projectId string, loadBalancerId string) (AsyncOperationResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Delete")
 		localVarPostBody    interface{}
@@ -274,20 +266,20 @@ func (a *LoadBalancersApiService) DeleteLoadBalancer(ctx context.Context, projec
 }
 
 /*
-LoadBalancersApiService Retrieve details for a load balancer that belongs to the logged in user.
+LoadBalancersApiService Returns details for a single external load balancer in the project.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-  - @param loadBalancerId
+  - @param projectId ID of the project that owns the external load balancer.
+  - @param loadBalancerId ID of the external load balancer.
 
-@return LoadBalancer
+@return ExternalLoadBalancer
 */
-func (a *LoadBalancersApiService) GetLoadBalancer(ctx context.Context, projectId string, loadBalancerId string) (LoadBalancer, *http.Response, error) {
+func (a *LoadBalancersApiService) GetExternalLoadBalancer(ctx context.Context, projectId string, loadBalancerId string) (ExternalLoadBalancer, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue LoadBalancer
+		localVarReturnValue ExternalLoadBalancer
 	)
 
 	// create path and map variables
@@ -346,7 +338,7 @@ func (a *LoadBalancersApiService) GetLoadBalancer(ctx context.Context, projectId
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v LoadBalancer
+			var v ExternalLoadBalancer
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -357,16 +349,6 @@ func (a *LoadBalancersApiService) GetLoadBalancer(ctx context.Context, projectId
 		}
 		if localVarHttpResponse.StatusCode == 401 {
 			var v InlineResponse401
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 403 {
-			var v InlineResponse403
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -392,19 +374,29 @@ func (a *LoadBalancersApiService) GetLoadBalancer(ctx context.Context, projectId
 }
 
 /*
-LoadBalancersApiService Retrieve details about all load balancers that belong to the logged in user.
-  - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId
-
-@return ListLoadBalancersResponseV1Alpha5
+LoadBalancersApiService Lists all external load balancers in the project and returns their details.
+ * @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+ * @param projectId ID of the project that owns the external load balancers.
+ * @param optional nil or *LoadBalancersApiListExternalLoadBalancersOpts - Optional Parameters:
+     * @param "Location" (optional.String) -  Filters results to external load balancers in this location.
+     * @param "VpcNetworkId" (optional.String) -  Filters results to external load balancers in this VPC network.
+     * @param "Name" (optional.String) -  Filters results to external load balancers with this name.
+@return ListExternalLoadBalancersResponse
 */
-func (a *LoadBalancersApiService) ListLoadBalancers(ctx context.Context, projectId string) (ListLoadBalancersResponseV1Alpha5, *http.Response, error) {
+
+type LoadBalancersApiListExternalLoadBalancersOpts struct {
+	Location     optional.String
+	VpcNetworkId optional.String
+	Name         optional.String
+}
+
+func (a *LoadBalancersApiService) ListExternalLoadBalancers(ctx context.Context, projectId string, localVarOptionals *LoadBalancersApiListExternalLoadBalancersOpts) (ListExternalLoadBalancersResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue ListLoadBalancersResponseV1Alpha5
+		localVarReturnValue ListExternalLoadBalancersResponse
 	)
 
 	// create path and map variables
@@ -415,6 +407,15 @@ func (a *LoadBalancersApiService) ListLoadBalancers(ctx context.Context, project
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
+	if localVarOptionals != nil && localVarOptionals.Location.IsSet() {
+		localVarQueryParams.Add("location", parameterToString(localVarOptionals.Location.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.VpcNetworkId.IsSet() {
+		localVarQueryParams.Add("vpc_network_id", parameterToString(localVarOptionals.VpcNetworkId.Value(), ""))
+	}
+	if localVarOptionals != nil && localVarOptionals.Name.IsSet() {
+		localVarQueryParams.Add("name", parameterToString(localVarOptionals.Name.Value(), ""))
+	}
 	// to determine the Content-Type header
 	localVarHttpContentTypes := []string{}
 
@@ -462,7 +463,7 @@ func (a *LoadBalancersApiService) ListLoadBalancers(ctx context.Context, project
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v ListLoadBalancersResponseV1Alpha5
+			var v ListExternalLoadBalancersResponse
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -473,16 +474,6 @@ func (a *LoadBalancersApiService) ListLoadBalancers(ctx context.Context, project
 		}
 		if localVarHttpResponse.StatusCode == 401 {
 			var v InlineResponse401
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 403 {
-			var v InlineResponse403
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -508,16 +499,16 @@ func (a *LoadBalancersApiService) ListLoadBalancers(ctx context.Context, project
 }
 
 /*
-LoadBalancersApiService Patch (update) a load balancer owned by the logged in user.
-A successful response from this resource will contain the async operation. To disable health checking, pass \&quot;health_check\&quot;: {\&quot;port\&quot;: 0}
+LoadBalancersApiService Updates an external load balancer in the project and returns the async operation.
+This endpoint updates the configuration of an existing external load balancer. The request must include the load balancer ID and optionally the health check options and/or listen ports and associated backends.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param body
-  - @param projectId
-  - @param loadBalancerId
+  - @param body Request body for updating the external load balancer.
+  - @param projectId The project ID to which the external load balancer belongs.
+  - @param loadBalancerId The ID of the external load balancer to update.
 
 @return AsyncOperationResponse
 */
-func (a *LoadBalancersApiService) PatchLoadBalancer(ctx context.Context, body LoadBalancersPatchRequestV1Alpha5, projectId string, loadBalancerId string) (AsyncOperationResponse, *http.Response, error) {
+func (a *LoadBalancersApiService) UpdateExternalLoadBalancer(ctx context.Context, body ExternalLoadBalancerPatchRequest, projectId string, loadBalancerId string) (AsyncOperationResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Patch")
 		localVarPostBody    interface{}
@@ -613,8 +604,8 @@ func (a *LoadBalancersApiService) PatchLoadBalancer(ctx context.Context, body Lo
 			newErr.model = v
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
-		if localVarHttpResponse.StatusCode == 403 {
-			var v InlineResponse403
+		if localVarHttpResponse.StatusCode == 404 {
+			var v InlineResponse404
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()

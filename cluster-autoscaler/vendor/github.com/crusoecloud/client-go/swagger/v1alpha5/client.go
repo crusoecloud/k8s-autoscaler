@@ -44,9 +44,19 @@ type APIClient struct {
 
 	// API Services
 
-	AuditApi *AuditApiService
+	AuditLogsApi *AuditLogsApiService
+
+	AutoClusterOperationsApi *AutoClusterOperationsApiService
+
+	AutoClustersApi *AutoClustersApiService
+
+	BillingApi *BillingApiService
 
 	CapacitiesApi *CapacitiesApiService
+
+	CcrApi *CcrApiService
+
+	ContainerRegistryApi *ContainerRegistryApiService
 
 	CustomImageOperationsApi *CustomImageOperationsApiService
 
@@ -60,6 +70,8 @@ type APIClient struct {
 
 	FeatureFlagsApi *FeatureFlagsApiService
 
+	FoundryApi *FoundryApiService
+
 	IBNetworksApi *IBNetworksApiService
 
 	IBPartitionsApi *IBPartitionsApiService
@@ -68,11 +80,13 @@ type APIClient struct {
 
 	ImagesApi *ImagesApiService
 
-	InferenceAPIKeyApi *InferenceAPIKeyApiService
-
 	InstanceGroupsApi *InstanceGroupsApiService
 
 	InstanceTemplatesApi *InstanceTemplatesApiService
+
+	InternalLoadBalancerOperationsApi *InternalLoadBalancerOperationsApiService
+
+	InternalLoadBalancersApi *InternalLoadBalancersApiService
 
 	KubernetesClusterOperationsApi *KubernetesClusterOperationsApiService
 
@@ -82,13 +96,21 @@ type APIClient struct {
 
 	KubernetesNodePoolsApi *KubernetesNodePoolsApiService
 
+	KubernetesSupportAccessApi *KubernetesSupportAccessApiService
+
+	KubernetesVersionsApi *KubernetesVersionsApiService
+
+	LimitedUsageAPIKeyApi *LimitedUsageAPIKeyApiService
+
 	LoadBalancerOperationsApi *LoadBalancerOperationsApiService
 
 	LoadBalancersApi *LoadBalancersApiService
 
 	LocationsApi *LocationsApiService
 
-	LogsApi *LogsApiService
+	NVLinkDomainsApi *NVLinkDomainsApiService
+
+	ObservabilityApi *ObservabilityApiService
 
 	ProjectsApi *ProjectsApiService
 
@@ -96,21 +118,33 @@ type APIClient struct {
 
 	ReservationsApi *ReservationsApiService
 
+	RoleBindingsApi *RoleBindingsApiService
+
+	RolesApi *RolesApiService
+
+	S3BucketsApi *S3BucketsApiService
+
+	S3KeysApi *S3KeysApiService
+
+	SCIMApi *SCIMApiService
+
 	SSHKeysApi *SSHKeysApiService
+
+	SSOApi *SSOApiService
+
+	SlurmClusterOperationsApi *SlurmClusterOperationsApiService
+
+	SlurmClustersApi *SlurmClustersApiService
+
+	SlurmNodesetOperationsApi *SlurmNodesetOperationsApiService
+
+	SlurmNodesetsApi *SlurmNodesetsApiService
 
 	SnapshotOperationsApi *SnapshotOperationsApiService
 
 	SnapshotsApi *SnapshotsApiService
 
 	TokensApi *TokensApiService
-
-	TrainingClusterNodePoolOperationsApi *TrainingClusterNodePoolOperationsApiService
-
-	TrainingClusterNodePoolsApi *TrainingClusterNodePoolsApiService
-
-	TrainingClusterOperationsApi *TrainingClusterOperationsApiService
-
-	TrainingClustersApi *TrainingClustersApiService
 
 	UsageApi *UsageApiService
 
@@ -147,40 +181,57 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.common.client = c
 
 	// API Services
-	c.AuditApi = (*AuditApiService)(&c.common)
+	c.AuditLogsApi = (*AuditLogsApiService)(&c.common)
+	c.AutoClusterOperationsApi = (*AutoClusterOperationsApiService)(&c.common)
+	c.AutoClustersApi = (*AutoClustersApiService)(&c.common)
+	c.BillingApi = (*BillingApiService)(&c.common)
 	c.CapacitiesApi = (*CapacitiesApiService)(&c.common)
+	c.CcrApi = (*CcrApiService)(&c.common)
+	c.ContainerRegistryApi = (*ContainerRegistryApiService)(&c.common)
 	c.CustomImageOperationsApi = (*CustomImageOperationsApiService)(&c.common)
 	c.CustomImagesApi = (*CustomImagesApiService)(&c.common)
 	c.DiskOperationsApi = (*DiskOperationsApiService)(&c.common)
 	c.DisksApi = (*DisksApiService)(&c.common)
 	c.EntitiesApi = (*EntitiesApiService)(&c.common)
 	c.FeatureFlagsApi = (*FeatureFlagsApiService)(&c.common)
+	c.FoundryApi = (*FoundryApiService)(&c.common)
 	c.IBNetworksApi = (*IBNetworksApiService)(&c.common)
 	c.IBPartitionsApi = (*IBPartitionsApiService)(&c.common)
 	c.IdentitiesApi = (*IdentitiesApiService)(&c.common)
 	c.ImagesApi = (*ImagesApiService)(&c.common)
-	c.InferenceAPIKeyApi = (*InferenceAPIKeyApiService)(&c.common)
 	c.InstanceGroupsApi = (*InstanceGroupsApiService)(&c.common)
 	c.InstanceTemplatesApi = (*InstanceTemplatesApiService)(&c.common)
+	c.InternalLoadBalancerOperationsApi = (*InternalLoadBalancerOperationsApiService)(&c.common)
+	c.InternalLoadBalancersApi = (*InternalLoadBalancersApiService)(&c.common)
 	c.KubernetesClusterOperationsApi = (*KubernetesClusterOperationsApiService)(&c.common)
 	c.KubernetesClustersApi = (*KubernetesClustersApiService)(&c.common)
 	c.KubernetesNodePoolOperationsApi = (*KubernetesNodePoolOperationsApiService)(&c.common)
 	c.KubernetesNodePoolsApi = (*KubernetesNodePoolsApiService)(&c.common)
+	c.KubernetesSupportAccessApi = (*KubernetesSupportAccessApiService)(&c.common)
+	c.KubernetesVersionsApi = (*KubernetesVersionsApiService)(&c.common)
+	c.LimitedUsageAPIKeyApi = (*LimitedUsageAPIKeyApiService)(&c.common)
 	c.LoadBalancerOperationsApi = (*LoadBalancerOperationsApiService)(&c.common)
 	c.LoadBalancersApi = (*LoadBalancersApiService)(&c.common)
 	c.LocationsApi = (*LocationsApiService)(&c.common)
-	c.LogsApi = (*LogsApiService)(&c.common)
+	c.NVLinkDomainsApi = (*NVLinkDomainsApiService)(&c.common)
+	c.ObservabilityApi = (*ObservabilityApiService)(&c.common)
 	c.ProjectsApi = (*ProjectsApiService)(&c.common)
 	c.QuotasApi = (*QuotasApiService)(&c.common)
 	c.ReservationsApi = (*ReservationsApiService)(&c.common)
+	c.RoleBindingsApi = (*RoleBindingsApiService)(&c.common)
+	c.RolesApi = (*RolesApiService)(&c.common)
+	c.S3BucketsApi = (*S3BucketsApiService)(&c.common)
+	c.S3KeysApi = (*S3KeysApiService)(&c.common)
+	c.SCIMApi = (*SCIMApiService)(&c.common)
 	c.SSHKeysApi = (*SSHKeysApiService)(&c.common)
+	c.SSOApi = (*SSOApiService)(&c.common)
+	c.SlurmClusterOperationsApi = (*SlurmClusterOperationsApiService)(&c.common)
+	c.SlurmClustersApi = (*SlurmClustersApiService)(&c.common)
+	c.SlurmNodesetOperationsApi = (*SlurmNodesetOperationsApiService)(&c.common)
+	c.SlurmNodesetsApi = (*SlurmNodesetsApiService)(&c.common)
 	c.SnapshotOperationsApi = (*SnapshotOperationsApiService)(&c.common)
 	c.SnapshotsApi = (*SnapshotsApiService)(&c.common)
 	c.TokensApi = (*TokensApiService)(&c.common)
-	c.TrainingClusterNodePoolOperationsApi = (*TrainingClusterNodePoolOperationsApiService)(&c.common)
-	c.TrainingClusterNodePoolsApi = (*TrainingClusterNodePoolsApiService)(&c.common)
-	c.TrainingClusterOperationsApi = (*TrainingClusterOperationsApiService)(&c.common)
-	c.TrainingClustersApi = (*TrainingClustersApiService)(&c.common)
 	c.UsageApi = (*UsageApiService)(&c.common)
 	c.VMOperationsApi = (*VMOperationsApiService)(&c.common)
 	c.VMsApi = (*VMsApiService)(&c.common)

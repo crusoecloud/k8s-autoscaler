@@ -9,9 +9,13 @@
 package swagger
 
 type Project struct {
-	Id             string            `json:"id"`
-	Name           string            `json:"name"`
-	OrganizationId string            `json:"organization_id"`
-	Relation       string            `json:"relation"`
-	Resources      *ProjectResources `json:"resources"`
+	// ID of the project.
+	Id string `json:"id"`
+	// Name of the project.
+	Name string `json:"name"`
+	// ID of the organization that owns the project.
+	OrganizationId string `json:"organization_id"`
+	// Relation of the logged-in user to the project. Deprecated.
+	Relation  string            `json:"relation"`
+	Resources *ProjectResources `json:"resources"`
 }
