@@ -293,7 +293,7 @@ github.com/coreos/go-semver/semver
 github.com/coreos/go-systemd/v22/daemon
 github.com/coreos/go-systemd/v22/dbus
 github.com/coreos/go-systemd/v22/journal
-# github.com/crusoecloud/client-go v0.1.67 => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813000927-72b35d72b5e5
+# github.com/crusoecloud/client-go v0.1.67 => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813003737-b8be01d95bb6
 ## explicit; go 1.17
 github.com/crusoecloud/client-go/swagger/v1alpha5
 # github.com/cyphar/filepath-securejoin v0.2.4
@@ -2401,4 +2401,4 @@ sigs.k8s.io/yaml/goyaml.v2
 # k8s.io/kms => k8s.io/kms v0.30.5
 # k8s.io/endpointslice => k8s.io/endpointslice v0.30.5
 # k8s.io/autoscaler/cluster-autoscaler/apis => ./apis
-# github.com/crusoecloud/client-go => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813000927-72b35d72b5e5
+# github.com/crusoecloud/client-go => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813003737-b8be01d95bb6

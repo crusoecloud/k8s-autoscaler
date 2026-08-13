@@ -289,4 +289,4 @@ replace k8s.io/endpointslice => k8s.io/endpointslice v0.30.5
 
 replace k8s.io/autoscaler/cluster-autoscaler/apis => ./apis
 
-replace github.com/crusoecloud/client-go => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813000927-72b35d72b5e5
+replace github.com/crusoecloud/client-go => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813003737-b8be01d95bb6

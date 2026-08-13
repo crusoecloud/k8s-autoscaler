@@ -40,7 +40,7 @@ type KubernetesNodePool struct {
 	// ID of the billing reservation associated with the node pool.
 	ReservationId string `json:"reservation_id"`
 	// Autoscaling configuration for the node pool.
-	ScalingConfig *KubernetesNodePoolAutoscalingConfig `json:"scaling_config,omitempty"`
+	AutoscalingConfig *KubernetesNodePoolAutoscalingConfig `json:"autoscaling_config,omitempty"`
 	// Current state of the node pool.
 	State string `json:"state"`
 	// ID of the subnet the node pool belongs to.

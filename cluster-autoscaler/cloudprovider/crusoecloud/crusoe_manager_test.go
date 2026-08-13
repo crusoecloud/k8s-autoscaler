@@ -120,7 +120,7 @@ func TestManager_RefreshSkipsNodePoolsWithoutSpec(t *testing.T) {
 	assert.Equal(t, "configured-pool", nodeGroups[0].pool.Name)
 }
 
-func TestManager_RefreshBoundsFromScalingConfig(t *testing.T) {
+func TestManager_RefreshBoundsFromAutoscalingConfig(t *testing.T) {
 	ctx := context.Background()
 	mgr, mocks := testManagerWithMocks()
 	// pool also has a flag entry with different bounds: the API bounds must win
@@ -133,7 +133,7 @@ func TestManager_RefreshBoundsFromScalingConfig(t *testing.T) {
 		Name:      "autoscaled-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 0,
 			MaxNodeSize: 5,
@@ -173,7 +173,7 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 		Name:      "paused-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     false,
 			MinNodeSize: 2,
 			MaxNodeSize: 3,
@@ -187,7 +187,7 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 		Name:      "parked-then-paused",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     false,
 			MinNodeSize: 0,
 			MaxNodeSize: 0,
@@ -214,7 +214,7 @@ func TestManager_RefreshNeverConfiguredFallsBackToFlags(t *testing.T) {
 		"legacy-pool": {Name: "legacy-pool", MinSize: 1, MaxSize: 4},
 	}
 
-	// never-configured pool as served by the gateway: no scaling_config block
+	// never-configured pool as served by the gateway: no autoscaling_config block
 	// at all (the gateway omits it when the pool's bounds were never set)
 	legacyPool := crusoeapi.KubernetesNodePool{
 		Id:        "legacy-pool-id",
@@ -242,7 +242,7 @@ func TestManager_RefreshNeverConfiguredFallsBackToFlags(t *testing.T) {
 	assert.Equal(t, 4, nodeGroups[0].MaxSize())
 }
 
-func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
+func TestManager_RefreshSkipsInvalidAutoscalingConfig(t *testing.T) {
 	ctx := context.Background()
 	mgr, mocks := testManagerWithMocks()
 
@@ -251,7 +251,7 @@ func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
 		Name:      "min-above-max-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 5,
 			MaxNodeSize: 2,
@@ -283,7 +283,7 @@ func TestManager_RefreshParkedAtZeroPoolRegistersInert(t *testing.T) {
 		Name:      "parked-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 0,
 			MaxNodeSize: 0,
@@ -318,14 +318,14 @@ func TestManager_RefreshUpdatesBoundsAcrossRefreshes(t *testing.T) {
 		Name:      "autoscaled-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		AutoscalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 1,
 			MaxNodeSize: 3,
 		},
 	}
 	poolAfter := poolBefore
-	poolAfter.ScalingConfig = &crusoeapi.KubernetesNodePoolAutoscalingConfig{
+	poolAfter.AutoscalingConfig = &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 		Enabled:     true,
 		MinNodeSize: 2,
 		MaxNodeSize: 6,
