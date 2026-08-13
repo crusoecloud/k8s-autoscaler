@@ -35,7 +35,7 @@ type KubernetesNodePoolPostRequest struct {
 	PublicIpType             string                    `json:"public_ip_type,omitempty"`
 	ReservationSpecification *ReservationSpecification `json:"reservation_specification,omitempty"`
 	// Autoscaling configuration for the node pool.
-	ScalingConfig *KubernetesNodePoolScalingConfig `json:"scaling_config,omitempty"`
+	ScalingConfig *KubernetesNodePoolAutoscalingConfig `json:"scaling_config,omitempty"`
 	// SSH public key to use for all VMs created from the new node pool.
 	SshPublicKey string `json:"ssh_public_key,omitempty"`
 	// ID of the subnet to create the node pool in. Must be in the location of the cluster if specified. If not provided, the default subnet for the location is used, if there is one.

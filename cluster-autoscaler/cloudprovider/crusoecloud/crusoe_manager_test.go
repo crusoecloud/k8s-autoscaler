@@ -133,7 +133,7 @@ func TestManager_RefreshBoundsFromScalingConfig(t *testing.T) {
 		Name:      "autoscaled-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 0,
 			MaxNodeSize: 5,
@@ -173,7 +173,7 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 		Name:      "paused-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     false,
 			MinNodeSize: 2,
 			MaxNodeSize: 3,
@@ -187,7 +187,7 @@ func TestManager_RefreshSkipsPausedNodePools(t *testing.T) {
 		Name:      "parked-then-paused",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     false,
 			MinNodeSize: 0,
 			MaxNodeSize: 0,
@@ -251,7 +251,7 @@ func TestManager_RefreshSkipsInvalidScalingConfig(t *testing.T) {
 		Name:      "min-above-max-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 5,
 			MaxNodeSize: 2,
@@ -283,7 +283,7 @@ func TestManager_RefreshParkedAtZeroPoolRegistersInert(t *testing.T) {
 		Name:      "parked-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 0,
 			MaxNodeSize: 0,
@@ -318,14 +318,14 @@ func TestManager_RefreshUpdatesBoundsAcrossRefreshes(t *testing.T) {
 		Name:      "autoscaled-pool",
 		ClusterId: testClusterID,
 		State:     stateRunning,
-		ScalingConfig: &crusoeapi.KubernetesNodePoolScalingConfig{
+		ScalingConfig: &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 			Enabled:     true,
 			MinNodeSize: 1,
 			MaxNodeSize: 3,
 		},
 	}
 	poolAfter := poolBefore
-	poolAfter.ScalingConfig = &crusoeapi.KubernetesNodePoolScalingConfig{
+	poolAfter.ScalingConfig = &crusoeapi.KubernetesNodePoolAutoscalingConfig{
 		Enabled:     true,
 		MinNodeSize: 2,
 		MaxNodeSize: 6,

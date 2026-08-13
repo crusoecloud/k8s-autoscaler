@@ -8,7 +8,7 @@
  */
 package swagger
 
-type KubernetesNodePoolScalingConfig struct {
+type KubernetesNodePoolAutoscalingConfig struct {
 	// Whether the cluster autoscaler manages this node pool.
 	Enabled bool `json:"enabled"`
 	// Minimum number of nodes the autoscaler may scale the pool down to.

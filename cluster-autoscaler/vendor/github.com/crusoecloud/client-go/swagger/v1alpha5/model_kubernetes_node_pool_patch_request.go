@@ -24,7 +24,7 @@ type KubernetesNodePoolPatchRequest struct {
 	// New reservation ID for the node pool.
 	ReservationId string `json:"reservation_id"`
 	// Autoscaling configuration for the node pool. Omitted (null): autoscaling config is left unchanged. enabled true: full replace, both bounds required. enabled false: autoscaling is disabled, stored bounds are retained and any bounds in the request are ignored.
-	ScalingConfig *KubernetesNodePoolScalingConfig `json:"scaling_config,omitempty"`
+	ScalingConfig *KubernetesNodePoolAutoscalingConfig `json:"scaling_config,omitempty"`
 	// New SSH public key to use for all VMs created from this node pool.
 	SshPublicKey string `json:"ssh_public_key"`
 }
