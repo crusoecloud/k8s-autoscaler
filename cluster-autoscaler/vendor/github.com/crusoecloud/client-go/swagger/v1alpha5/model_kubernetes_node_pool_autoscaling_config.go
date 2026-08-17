@@ -9,10 +9,10 @@
 package swagger
 
 type KubernetesNodePoolAutoscalingConfig struct {
-	// Whether the cluster autoscaler manages this node pool.
+	// Whether the Cluster Autoscaler manages this node pool's size.
 	Enabled bool `json:"enabled"`
-	// Minimum number of nodes the autoscaler may scale the pool down to.
-	MinNodeSize int64 `json:"min_node_size"`
-	// Maximum number of nodes the autoscaler may scale the pool up to.
+	// Maximum number of nodes the autoscaler may scale up to. Must be >= min_node_size; [0, 0] pins the pool at zero nodes. Required alongside min_node_size when enabled is true; ignored when enabled is false.
 	MaxNodeSize int64 `json:"max_node_size"`
+	// Minimum number of nodes the autoscaler may scale down to. 0 permits scale-to-zero. Required alongside max_node_size when enabled is true; ignored when enabled is false.
+	MinNodeSize int64 `json:"min_node_size"`
 }

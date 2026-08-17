@@ -22,178 +22,30 @@ var (
 	_ context.Context
 )
 
-type InstanceTemplatesApiService service
+type DiagnosticsApiService service
 
 /*
-InstanceTemplatesApiService Creates an instance template in the project and returns the created instance template.
+DiagnosticsApiService Create a diagnostic report request for a VM.
+Initiates an NVIDIA bug report collection for the specified VM. Returns the diagnostic ID which can be used to poll for status. If a diagnostic is already pending for this VM, returns the existing diagnostic ID.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param body
-  - @param projectId project_id is the ID of the project to create the instance template in
+  - @param projectId The project ID
+  - @param vmId The VM ID to create diagnostic for
 
-@return CustomerInstanceTemplate
+@return DiagnosticResponse
 */
-func (a *InstanceTemplatesApiService) CreateInstanceTemplate(ctx context.Context, body InstanceTemplatesServiceCreateInstanceTemplateBody, projectId string) (CustomerInstanceTemplate, *http.Response, error) {
+func (a *DiagnosticsApiService) CreateDiagnostic(ctx context.Context, projectId string, vmId string) (DiagnosticResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Post")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue CustomerInstanceTemplate
+		localVarReturnValue DiagnosticResponse
 	)
 
 	// create path and map variables
-	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/compute/instance-templates"
+	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/diagnostics/vms/{vm_id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"project_id"+"}", fmt.Sprintf("%v", projectId), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	// to determine the Content-Type header
-	localVarHttpContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHttpContentType := selectHeaderContentType(localVarHttpContentTypes)
-	if localVarHttpContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHttpContentType
-	}
-
-	// to determine the Accept header
-	localVarHttpHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHttpHeaderAccept := selectHeaderAccept(localVarHttpHeaderAccepts)
-	if localVarHttpHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHttpHeaderAccept
-	}
-	// body params
-	localVarPostBody = &body
-	r, err := a.client.prepareRequest(ctx, localVarPath, localVarHttpMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, localVarFileName, localVarFileBytes)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHttpResponse, err := a.client.callAPI(r)
-	if err != nil || localVarHttpResponse == nil {
-		return localVarReturnValue, localVarHttpResponse, err
-	}
-
-	localVarBody, err := ioutil.ReadAll(localVarHttpResponse.Body)
-	localVarHttpResponse.Body.Close()
-	if err != nil {
-		return localVarReturnValue, localVarHttpResponse, err
-	}
-
-	if localVarHttpResponse.StatusCode < 300 {
-		// If we succeed, return the data, otherwise pass on to decode error.
-		err = a.client.decode(&localVarReturnValue, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-		if err == nil {
-			return localVarReturnValue, localVarHttpResponse, err
-		}
-	}
-
-	if localVarHttpResponse.StatusCode >= 300 {
-		newErr := GenericSwaggerError{
-			body:  localVarBody,
-			error: localVarHttpResponse.Status,
-		}
-		if localVarHttpResponse.StatusCode == 200 {
-			var v CustomerInstanceTemplate
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 400 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 401 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 402 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 403 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 500 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 0 {
-			var v RpcStatus
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		return localVarReturnValue, localVarHttpResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHttpResponse, nil
-}
-
-/*
-InstanceTemplatesApiService Deletes an instance template from the project.
-  - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId project_id is the ID of the project the instance template belongs to
-  - @param instanceTemplateId instance_template_id is the ID of the instance template to delete
-
-@return CustomerDeleteInstanceTemplateResponse
-*/
-func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context, projectId string, instanceTemplateId string) (CustomerDeleteInstanceTemplateResponse, *http.Response, error) {
-	var (
-		localVarHttpMethod  = strings.ToUpper("Delete")
-		localVarPostBody    interface{}
-		localVarFileName    string
-		localVarFileBytes   []byte
-		localVarReturnValue CustomerDeleteInstanceTemplateResponse
-	)
-
-	// create path and map variables
-	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/compute/instance-templates/{instance_template_id}"
-	localVarPath = strings.Replace(localVarPath, "{"+"project_id"+"}", fmt.Sprintf("%v", projectId), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"instance_template_id"+"}", fmt.Sprintf("%v", instanceTemplateId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"vm_id"+"}", fmt.Sprintf("%v", vmId), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -245,8 +97,8 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 			body:  localVarBody,
 			error: localVarHttpResponse.Status,
 		}
-		if localVarHttpResponse.StatusCode == 200 {
-			var v CustomerDeleteInstanceTemplateResponse
+		if localVarHttpResponse.StatusCode == 201 {
+			var v DiagnosticResponse
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -256,7 +108,7 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 400 {
-			var v interface{}
+			var v InlineResponse400
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -266,7 +118,7 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 401 {
-			var v interface{}
+			var v InlineResponse401
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -276,17 +128,7 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 403 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 404 {
-			var v interface{}
+			var v InlineResponse403
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -296,17 +138,7 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 500 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 0 {
-			var v RpcStatus
+			var v InlineResponse500
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -322,26 +154,29 @@ func (a *InstanceTemplatesApiService) DeleteInstanceTemplate(ctx context.Context
 }
 
 /*
-InstanceTemplatesApiService Returns details for a single instance template in the project.
+DiagnosticsApiService Download a diagnostic report file.
+Downloads the diagnostic report file for the specified diagnostic ID. The diagnostic must be in completed status to download.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId project_id is the ID of the project the instance template belongs to
-  - @param instanceTemplateId instance_template_id is the ID of the instance template to fetch
+  - @param projectId The project ID
+  - @param vmId The VM ID
+  - @param diagnosticId The diagnostic ID to download
 
-@return CustomerInstanceTemplate
+@return []int32
 */
-func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, projectId string, instanceTemplateId string) (CustomerInstanceTemplate, *http.Response, error) {
+func (a *DiagnosticsApiService) DownloadDiagnostic(ctx context.Context, projectId string, vmId string, diagnosticId string) ([]int32, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue CustomerInstanceTemplate
+		localVarReturnValue []int32
 	)
 
 	// create path and map variables
-	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/compute/instance-templates/{instance_template_id}"
+	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/diagnostics/vms/{vm_id}/{diagnostic_id}/download"
 	localVarPath = strings.Replace(localVarPath, "{"+"project_id"+"}", fmt.Sprintf("%v", projectId), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"instance_template_id"+"}", fmt.Sprintf("%v", instanceTemplateId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"vm_id"+"}", fmt.Sprintf("%v", vmId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"diagnostic_id"+"}", fmt.Sprintf("%v", diagnosticId), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -394,7 +229,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v CustomerInstanceTemplate
+			var v []int32
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -404,7 +239,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 400 {
-			var v interface{}
+			var v InlineResponse400
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -414,7 +249,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 401 {
-			var v interface{}
+			var v InlineResponse401
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -424,7 +259,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 403 {
-			var v interface{}
+			var v InlineResponse403
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -434,7 +269,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 404 {
-			var v interface{}
+			var v InlineResponse404
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -444,17 +279,7 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 500 {
-			var v interface{}
-			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHttpResponse, newErr
-			}
-			newErr.model = v
-			return localVarReturnValue, localVarHttpResponse, newErr
-		}
-		if localVarHttpResponse.StatusCode == 0 {
-			var v RpcStatus
+			var v InlineResponse500
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -470,24 +295,29 @@ func (a *InstanceTemplatesApiService) GetInstanceTemplate(ctx context.Context, p
 }
 
 /*
-InstanceTemplatesApiService Lists all instance templates in the project and returns their details.
+DiagnosticsApiService Get the status of a diagnostic report.
+Returns the current status of a diagnostic report including type, status (pending/running/completed/failed), download URL (if completed), and timestamps.
   - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-  - @param projectId project_id is the ID of the project to list instance templates in
+  - @param projectId The project ID
+  - @param vmId The VM ID
+  - @param diagnosticId The diagnostic ID to get status for
 
-@return CustomerListInstanceTemplatesResponse
+@return DiagnosticStatusResponse
 */
-func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context, projectId string) (CustomerListInstanceTemplatesResponse, *http.Response, error) {
+func (a *DiagnosticsApiService) GetDiagnosticStatus(ctx context.Context, projectId string, vmId string, diagnosticId string) (DiagnosticStatusResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue CustomerListInstanceTemplatesResponse
+		localVarReturnValue DiagnosticStatusResponse
 	)
 
 	// create path and map variables
-	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/compute/instance-templates"
+	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/diagnostics/vms/{vm_id}/{diagnostic_id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"project_id"+"}", fmt.Sprintf("%v", projectId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"vm_id"+"}", fmt.Sprintf("%v", vmId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"diagnostic_id"+"}", fmt.Sprintf("%v", diagnosticId), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -540,7 +370,17 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v CustomerListInstanceTemplatesResponse
+			var v DiagnosticStatusResponse
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 400 {
+			var v InlineResponse400
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -550,7 +390,7 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 401 {
-			var v interface{}
+			var v InlineResponse401
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -560,7 +400,7 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 403 {
-			var v interface{}
+			var v InlineResponse403
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -570,7 +410,7 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 404 {
-			var v interface{}
+			var v InlineResponse404
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -580,7 +420,7 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 500 {
-			var v interface{}
+			var v InlineResponse500
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -589,8 +429,127 @@ func (a *InstanceTemplatesApiService) ListInstanceTemplates(ctx context.Context,
 			newErr.model = v
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
-		if localVarHttpResponse.StatusCode == 0 {
-			var v RpcStatus
+		return localVarReturnValue, localVarHttpResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHttpResponse, nil
+}
+
+/*
+DiagnosticsApiService Get the latest completed diagnostic report for a VM.
+Returns the download URL for the most recently completed diagnostic report for the specified VM. If no completed diagnostic exists, has_diagnostic will be false.
+  - @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+  - @param projectId The project ID
+  - @param vmId The VM ID to get latest completed diagnostic for
+
+@return LatestDiagnosticResponse
+*/
+func (a *DiagnosticsApiService) GetLatestCompletedDiagnostic(ctx context.Context, projectId string, vmId string) (LatestDiagnosticResponse, *http.Response, error) {
+	var (
+		localVarHttpMethod  = strings.ToUpper("Get")
+		localVarPostBody    interface{}
+		localVarFileName    string
+		localVarFileBytes   []byte
+		localVarReturnValue LatestDiagnosticResponse
+	)
+
+	// create path and map variables
+	localVarPath := a.client.cfg.BasePath + "/projects/{project_id}/diagnostics/vms/{vm_id}/latest"
+	localVarPath = strings.Replace(localVarPath, "{"+"project_id"+"}", fmt.Sprintf("%v", projectId), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"vm_id"+"}", fmt.Sprintf("%v", vmId), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	// to determine the Content-Type header
+	localVarHttpContentTypes := []string{}
+
+	// set Content-Type header
+	localVarHttpContentType := selectHeaderContentType(localVarHttpContentTypes)
+	if localVarHttpContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHttpContentType
+	}
+
+	// to determine the Accept header
+	localVarHttpHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHttpHeaderAccept := selectHeaderAccept(localVarHttpHeaderAccepts)
+	if localVarHttpHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHttpHeaderAccept
+	}
+	r, err := a.client.prepareRequest(ctx, localVarPath, localVarHttpMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, localVarFileName, localVarFileBytes)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHttpResponse, err := a.client.callAPI(r)
+	if err != nil || localVarHttpResponse == nil {
+		return localVarReturnValue, localVarHttpResponse, err
+	}
+
+	localVarBody, err := ioutil.ReadAll(localVarHttpResponse.Body)
+	localVarHttpResponse.Body.Close()
+	if err != nil {
+		return localVarReturnValue, localVarHttpResponse, err
+	}
+
+	if localVarHttpResponse.StatusCode < 300 {
+		// If we succeed, return the data, otherwise pass on to decode error.
+		err = a.client.decode(&localVarReturnValue, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+		if err == nil {
+			return localVarReturnValue, localVarHttpResponse, err
+		}
+	}
+
+	if localVarHttpResponse.StatusCode >= 300 {
+		newErr := GenericSwaggerError{
+			body:  localVarBody,
+			error: localVarHttpResponse.Status,
+		}
+		if localVarHttpResponse.StatusCode == 200 {
+			var v LatestDiagnosticResponse
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 400 {
+			var v InlineResponse400
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 401 {
+			var v InlineResponse401
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 403 {
+			var v InlineResponse403
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 500 {
+			var v InlineResponse500
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()

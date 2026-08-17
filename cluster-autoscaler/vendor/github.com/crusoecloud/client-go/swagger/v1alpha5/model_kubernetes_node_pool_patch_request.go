@@ -10,8 +10,9 @@ package swagger
 
 type KubernetesNodePoolPatchRequest struct {
 	// Action to perform on the node pool: RESERVE, UNRESERVE, or UPDATE. RESERVE and UNRESERVE operations are done synchronously, and so will have succeeded with a 200 response. Defaults to UPDATE if no action is specified.
-	Action string `json:"action"`
-	// New number of nodes in the node pool.
+	Action            string                               `json:"action"`
+	AutoscalingConfig *KubernetesNodePoolAutoscalingConfig `json:"autoscaling_config,omitempty"`
+	// New desired number of nodes in the node pool.
 	Count int64 `json:"count"`
 	// Whether the first local ephemeral NVMe disk is used for containerd storage.
 	EphemeralStorageForContainerd bool `json:"ephemeral_storage_for_containerd"`
@@ -23,8 +24,6 @@ type KubernetesNodePoolPatchRequest struct {
 	NodeTaints []KubernetesNodeTaint `json:"node_taints"`
 	// New reservation ID for the node pool.
 	ReservationId string `json:"reservation_id"`
-	// Autoscaling configuration for the node pool. Omitted (null): autoscaling config is left unchanged. enabled true: full replace, both bounds required. enabled false: autoscaling is disabled, stored bounds are retained and any bounds in the request are ignored.
-	AutoscalingConfig *KubernetesNodePoolAutoscalingConfig `json:"autoscaling_config,omitempty"`
 	// New SSH public key to use for all VMs created from this node pool.
 	SshPublicKey string `json:"ssh_public_key"`
 }

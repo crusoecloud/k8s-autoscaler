@@ -10,6 +10,7 @@ package swagger
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -23,39 +24,41 @@ var (
 	_ context.Context
 )
 
-type FeatureFlagsApiService service
+type CreditsApiService service
 
 /*
-FeatureFlagsApiService Get feature flags for the currently logged in user.
-A successful response from this resource will contain a map of all feature flags and the value assigned to each of them for the user.
+CreditsApiService Retrieve an organization&#x27;s credit balance history.
+Returns the organization&#x27;s credit transactions, ordered newest-first, along with the balance remaining after each one.
  * @param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
- * @param optional nil or *FeatureFlagsApiGetFeatureFlagsOpts - Optional Parameters:
-     * @param "ProjectId" (optional.String) -  project_id optionally scopes flag evaluation to the given project. The caller must be a member of the project. When set, flags are evaluated with the project in the targeting context in addition to the user and org.
-@return CustomerListFeatureFlagsResponse
+ * @param orgId org_id is the ID of the organization whose credit history to list
+ * @param optional nil or *CreditsApiListCreditsOpts - Optional Parameters:
+     * @param "Limit" (optional.Int32) -  limit is the maximum number of transactions to return. Must be positive if set.
+@return CustomerListCreditsResponse
 */
 
-type FeatureFlagsApiGetFeatureFlagsOpts struct {
-	ProjectId optional.String
+type CreditsApiListCreditsOpts struct {
+	Limit optional.Int32
 }
 
-func (a *FeatureFlagsApiService) GetFeatureFlags(ctx context.Context, localVarOptionals *FeatureFlagsApiGetFeatureFlagsOpts) (CustomerListFeatureFlagsResponse, *http.Response, error) {
+func (a *CreditsApiService) ListCredits(ctx context.Context, orgId string, localVarOptionals *CreditsApiListCreditsOpts) (CustomerListCreditsResponse, *http.Response, error) {
 	var (
 		localVarHttpMethod  = strings.ToUpper("Get")
 		localVarPostBody    interface{}
 		localVarFileName    string
 		localVarFileBytes   []byte
-		localVarReturnValue CustomerListFeatureFlagsResponse
+		localVarReturnValue CustomerListCreditsResponse
 	)
 
 	// create path and map variables
-	localVarPath := a.client.cfg.BasePath + "/featureflags"
+	localVarPath := a.client.cfg.BasePath + "/organizations/{org_id}/credits"
+	localVarPath = strings.Replace(localVarPath, "{"+"org_id"+"}", fmt.Sprintf("%v", orgId), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
 
-	if localVarOptionals != nil && localVarOptionals.ProjectId.IsSet() {
-		localVarQueryParams.Add("project_id", parameterToString(localVarOptionals.ProjectId.Value(), ""))
+	if localVarOptionals != nil && localVarOptionals.Limit.IsSet() {
+		localVarQueryParams.Add("limit", parameterToString(localVarOptionals.Limit.Value(), ""))
 	}
 	// to determine the Content-Type header
 	localVarHttpContentTypes := []string{}
@@ -104,7 +107,17 @@ func (a *FeatureFlagsApiService) GetFeatureFlags(ctx context.Context, localVarOp
 			error: localVarHttpResponse.Status,
 		}
 		if localVarHttpResponse.StatusCode == 200 {
-			var v CustomerListFeatureFlagsResponse
+			var v CustomerListCreditsResponse
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 400 {
+			var v interface{}
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {
 				newErr.error = err.Error()
@@ -114,6 +127,16 @@ func (a *FeatureFlagsApiService) GetFeatureFlags(ctx context.Context, localVarOp
 			return localVarReturnValue, localVarHttpResponse, newErr
 		}
 		if localVarHttpResponse.StatusCode == 401 {
+			var v interface{}
+			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHttpResponse, newErr
+			}
+			newErr.model = v
+			return localVarReturnValue, localVarHttpResponse, newErr
+		}
+		if localVarHttpResponse.StatusCode == 403 {
 			var v interface{}
 			err = a.client.decode(&v, localVarBody, localVarHttpResponse.Header.Get("Content-Type"))
 			if err != nil {

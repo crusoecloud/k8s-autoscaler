@@ -20,7 +20,7 @@ require (
 	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.44.241
 	github.com/cenkalti/backoff/v4 v4.2.1
-	github.com/crusoecloud/client-go v0.1.67
+	github.com/crusoecloud/client-go v1.0.5
 	github.com/digitalocean/godo v1.27.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang/mock v1.6.0
@@ -288,5 +288,3 @@ replace k8s.io/kms => k8s.io/kms v0.30.5
 replace k8s.io/endpointslice => k8s.io/endpointslice v0.30.5
 
 replace k8s.io/autoscaler/cluster-autoscaler/apis => ./apis
-
-replace github.com/crusoecloud/client-go => gitlab.com/crusoeenergy/island/external/client-go v1.0.5-0.20260813003737-b8be01d95bb6

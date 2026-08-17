@@ -9,9 +9,10 @@
 package swagger
 
 type KubernetesNodePoolPostRequest struct {
+	AutoscalingConfig *KubernetesNodePoolAutoscalingConfig `json:"autoscaling_config,omitempty"`
 	// ID of the cluster the new node pool belongs to.
 	ClusterId string `json:"cluster_id"`
-	// Number of nodes to create.
+	// Desired number of nodes in the node pool.
 	Count int64 `json:"count"`
 	// Whether the first local ephemeral NVMe disk is used for containerd storage.
 	EphemeralStorageForContainerd bool `json:"ephemeral_storage_for_containerd,omitempty"`
@@ -34,8 +35,6 @@ type KubernetesNodePoolPostRequest struct {
 	// Public IP type for the node pool's nodes: dynamic, static, or none.
 	PublicIpType             string                    `json:"public_ip_type,omitempty"`
 	ReservationSpecification *ReservationSpecification `json:"reservation_specification,omitempty"`
-	// Autoscaling configuration for the node pool.
-	AutoscalingConfig *KubernetesNodePoolAutoscalingConfig `json:"autoscaling_config,omitempty"`
 	// SSH public key to use for all VMs created from the new node pool.
 	SshPublicKey string `json:"ssh_public_key,omitempty"`
 	// ID of the subnet to create the node pool in. Must be in the location of the cluster if specified. If not provided, the default subnet for the location is used, if there is one.
