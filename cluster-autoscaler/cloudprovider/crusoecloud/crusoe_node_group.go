@@ -167,20 +167,24 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 		return fmt.Errorf("failed to refresh node group before attempting to delete nodes: %v", err)
 	}
 
-	nodeIDsToDelete := []string{}
-	ng.nodeGroupRWMutex.RLock()
-	for _, n := range nodes {
-		nodeInfo, ok := ng.nodes[toNodeID(n.Spec.ProviderID)]
-		if !ok {
-			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
-			return fmt.Errorf("failed to find node %s (id=%s) in the node group's nodes cache", n.Name, toNodeID(n.Spec.ProviderID))
-		}
-
-		nodeIDsToDelete = append(nodeIDsToDelete, nodeInfo.Id)
+	nodeIDsToDelete, placeholders, err := ng.partitionNodesToDelete(nodes)
+	if err != nil {
+		return err
 	}
-	ng.nodeGroupRWMutex.RUnlock()
 
-	targetSize := min(ng.targetSize-len(nodeIDsToDelete), int(ng.pool.Count))
+	// Deleting a placeholder means giving up on the pool's unfilled deficit:
+	// lower the desired count instead of touching any VM. Cap the reduction to
+	// the deficit that still exists after the refresh above — the platform may
+	// have filled some or all of it since CA observed the placeholders, and
+	// stale placeholders must not shrink a healed pool.
+	if placeholders > 0 {
+		ng.nodeGroupRWMutex.RLock()
+		gap := int(ng.pool.Count) - ng.calculateActiveNodesFromCacheLocked()
+		ng.nodeGroupRWMutex.RUnlock()
+		placeholders = min(placeholders, max(gap, 0))
+	}
+
+	targetSize := min(ng.targetSize-len(nodeIDsToDelete)-placeholders, int(ng.pool.Count))
 	klog.V(4).Infof("DeleteNodes,%d nodes to reclaim (%d target size); ng=%v, pool id=%v", len(nodes), targetSize, ng, ng.pool.Id)
 	if targetSize >= int(ng.pool.Count) {
 		klog.V(4).Infof("DeleteNodes,PoolID=%s, new target size (%d) greater than or equal to the desired count (%d), skip updating desired count",
@@ -251,6 +255,32 @@ func (ng *crusoeNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	}()
 
 	return multiErr
+}
+
+// partitionNodesToDelete splits a deletion batch into real instance IDs and a
+// count of this pool's placeholder instances, which have no VM behind them. An
+// unknown real node is an error, exactly as before.
+func (ng *crusoeNodeGroup) partitionNodesToDelete(nodes []*apiv1.Node) (nodeIDs []string, placeholders int, err error) {
+	ng.nodeGroupRWMutex.RLock()
+	defer ng.nodeGroupRWMutex.RUnlock()
+
+	for _, n := range nodes {
+		nodeID := toNodeID(n.Spec.ProviderID)
+		if isPlaceholderNodeID(nodeID, ng.pool.Id) {
+			placeholders++
+			continue
+		}
+
+		nodeInfo, ok := ng.nodes[nodeID]
+		if !ok {
+			klog.Errorf("DeleteNodes,Name=%s,PoolID=%s,node marked for deletion not found in pool", n.Name, ng.pool.Id)
+			return nil, 0, fmt.Errorf("failed to find node %s (id=%s) in the node group's nodes cache", n.Name, nodeID)
+		}
+
+		nodeIDs = append(nodeIDs, nodeInfo.Id)
+	}
+
+	return nodeIDs, placeholders, nil
 }
 
 // DecreaseTargetSize decreases the target size of the node group. This function
@@ -340,7 +370,73 @@ func (ng *crusoeNodeGroup) Nodes() ([]cloudprovider.Instance, error) {
 		})
 	}
 
-	return nodes, nil
+	return append(nodes, ng.placeholderInstances()...), nil
+}
+
+// placeholderInstances synthesizes one failed-creation instance per node the
+// pool is short, when the platform has said the deficit will not fill: the
+// pool is RUNNING (no operation in flight) and carries a capacity or quota
+// health issue. CA core treats a Creating instance with ErrorInfo as a failed
+// creation within one loop — ScaleUpFailed event, group backoff, and deletion
+// of the errored instances (which DeleteNodes translates into a count
+// decrease) — instead of waiting max-node-provision-time for nodes that will
+// never arrive.
+//
+// Under UPDATING/PROVISIONING an operation is actively creating nodes and any
+// standing issue belongs to a previous operation, so nothing is synthesized.
+func (ng *crusoeNodeGroup) placeholderInstances() []cloudprovider.Instance {
+	if ng.pool.State != stateRunning {
+		return nil
+	}
+	issue := stockoutIssue(ng.pool.Health)
+	if issue == nil {
+		return nil
+	}
+
+	ng.nodeGroupRWMutex.RLock()
+	gap := int(ng.pool.Count) - ng.calculateActiveNodesFromCacheLocked()
+	ng.nodeGroupRWMutex.RUnlock()
+	if gap <= 0 {
+		return nil
+	}
+
+	klog.V(4).Infof("node pool with id %s reports %s for its %d-node deficit; "+
+		"synthesizing placeholder instances", ng.pool.Id, issue.Code, gap)
+
+	instances := make([]cloudprovider.Instance, 0, gap)
+	for i := 0; i < gap; i++ {
+		instances = append(instances, cloudprovider.Instance{
+			Id: toProviderID(placeholderNodeID(ng.pool.Id, i)),
+			Status: &cloudprovider.InstanceStatus{
+				State: cloudprovider.InstanceCreating,
+				ErrorInfo: &cloudprovider.InstanceErrorInfo{
+					ErrorClass:   cloudprovider.OutOfResourcesErrorClass,
+					ErrorCode:    issue.Code,
+					ErrorMessage: issue.Message,
+				},
+			},
+		})
+	}
+
+	return instances
+}
+
+// stockoutIssue returns the pool's standing capacity or quota health issue, if
+// any. Other codes are deliberately not acted on: NODE_NOT_READY duplicates
+// what CA already watches on the Node objects, INTERNAL_ERROR is auto-retried
+// platform-side, and unknown future codes are display-only per the API
+// contract.
+func stockoutIssue(health *crusoeapi.KubernetesNodePoolHealth) *crusoeapi.KubernetesNodePoolHealthIssue {
+	if health == nil {
+		return nil
+	}
+	for i := range health.Issues {
+		switch health.Issues[i].Code {
+		case issueInsufficientCapacity, issueInsufficientQuota:
+			return &health.Issues[i]
+		}
+	}
+	return nil
 }
 
 // TemplateNodeInfo returns a schedulerframework.NodeInfo structure of an empty

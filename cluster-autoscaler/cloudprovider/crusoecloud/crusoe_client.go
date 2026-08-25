@@ -47,6 +47,13 @@ const (
 	// converging toward the desired count. v2 pools never report
 	// STATE_UNHEALTHY; v1 pools still do.
 	stateDegraded = "STATE_DEGRADED"
+
+	// Health issue codes served in a v2 nodepool's health.issues[]. Capacity
+	// and quota shortfalls leave the pool STATE_RUNNING with a standing issue;
+	// they are the two codes meaning "the node deficit will not fill until
+	// something outside the platform changes".
+	issueInsufficientCapacity = "INSUFFICIENT_CAPACITY"
+	issueInsufficientQuota    = "INSUFFICIENT_QUOTA"
 )
 
 // AuthenticatingTransport is a struct implementing http.Roundtripper

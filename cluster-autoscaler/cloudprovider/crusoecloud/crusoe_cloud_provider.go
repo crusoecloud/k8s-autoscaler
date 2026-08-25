@@ -86,8 +86,14 @@ func (ccp *crusoeCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
 func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
+	nodeID := toNodeID(node.Spec.ProviderID)
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[toNodeID(node.Spec.ProviderID)]; ok {
+		if _, ok := ng.nodes[nodeID]; ok {
+			return ng, nil
+		}
+		// Placeholder fake-nodes must resolve to their group too: a created
+		// node with errors that resolves to no group aborts CA's whole loop.
+		if isPlaceholderNodeID(nodeID, ng.pool.Id) {
 			return ng, nil
 		}
 	}
@@ -96,8 +102,12 @@ func (ccp *crusoeCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovide
 
 // HasInstance returns whether a given node has a corresponding instance in this cloud provider
 func (ccp *crusoeCloudProvider) HasInstance(node *apiv1.Node) (bool, error) {
+	nodeID := toNodeID(node.Spec.ProviderID)
 	for _, ng := range ccp.manager.NodeGroups() {
-		if _, ok := ng.nodes[toNodeID(node.Spec.ProviderID)]; ok {
+		if _, ok := ng.nodes[nodeID]; ok {
+			return true, nil
+		}
+		if isPlaceholderNodeID(nodeID, ng.pool.Id) {
 			return true, nil
 		}
 	}
@@ -171,6 +181,27 @@ func toProviderID(nodeID string) string {
 // toNodeID returns a node or droplet ID from the given provider ID.
 func toNodeID(providerID string) string {
 	return strings.TrimPrefix(providerID, crusoeProviderIDPrefix)
+}
+
+// placeholderIDPrefix marks instances that represent a nodepool's standing
+// node deficit when the platform has reported it cannot be filled (a capacity
+// or quota health issue). Placeholders exist only in Nodes() output — never on
+// the cloud — so their IDs must be recognizable everywhere a provider ID is
+// resolved back to a node group or an instance.
+const placeholderIDPrefix = "placeholder-"
+
+// placeholderNodeID builds the deterministic node ID for one placeholder slot
+// of a pool's deficit. Determinism matters: clusterstate dedups errored
+// instances by ID across refreshes, so unstable IDs would re-register the
+// scale-up failure and reset the group's backoff every loop.
+func placeholderNodeID(poolID string, index int) string {
+	return fmt.Sprintf("%s%s-%d", placeholderIDPrefix, poolID, index)
+}
+
+// isPlaceholderNodeID reports whether nodeID is a placeholder belonging to the
+// given pool.
+func isPlaceholderNodeID(nodeID, poolID string) bool {
+	return strings.HasPrefix(nodeID, placeholderIDPrefix+poolID+"-")
 }
 
 // BuildCrusoeCloud returns CloudProvider implementation for CrusoeCloud.

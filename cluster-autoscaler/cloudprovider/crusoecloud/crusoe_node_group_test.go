@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
 )
 
@@ -621,4 +622,256 @@ func TestNodeGroup_IncreaseSizeBelowStoredCountReturnsError(t *testing.T) {
 
 	assert.Error(t, err)
 	mocks.nodePoolsApi.AssertNotCalled(t, "UpdateNodePool", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func quotaIssueHealth() *crusoeapi.KubernetesNodePoolHealth {
+	return &crusoeapi.KubernetesNodePoolHealth{
+		Issues: []crusoeapi.KubernetesNodePoolHealthIssue{
+			{Code: issueInsufficientQuota, Message: "Scaling up by 8 node(s) was denied by the project's quota"},
+		},
+	}
+}
+
+func TestNodeGroup_NodesSynthesizesPlaceholders(t *testing.T) {
+	ng, _ := testNodeGroupWithMocks(10)
+	ng.pool.State = stateRunning
+	ng.pool.Health = quotaIssueHealth()
+	ng.nodes = map[string]*crusoeapi.InstanceV1Alpha5{
+		"vm-1": {Id: "vm-1", State: "RUNNING"},
+		"vm-2": {Id: "vm-2", State: "RUNNING"},
+	}
+
+	instances, err := ng.Nodes()
+	assert.NoError(t, err)
+	assert.Len(t, instances, 10, "2 real nodes plus 8 placeholders for the deficit")
+
+	byID := map[string]cloudprovider.Instance{}
+	for _, inst := range instances {
+		byID[inst.Id] = inst
+	}
+	for i := 0; i < 8; i++ {
+		inst, ok := byID[toProviderID(placeholderNodeID(testNodePoolID, i))]
+		assert.True(t, ok, "placeholder %d missing", i)
+		assert.Equal(t, cloudprovider.InstanceCreating, inst.Status.State)
+		assert.Equal(t, cloudprovider.OutOfResourcesErrorClass, inst.Status.ErrorInfo.ErrorClass)
+		assert.Equal(t, issueInsufficientQuota, inst.Status.ErrorInfo.ErrorCode)
+		assert.Equal(t, "Scaling up by 8 node(s) was denied by the project's quota", inst.Status.ErrorInfo.ErrorMessage)
+	}
+
+	// IDs must be deterministic across refreshes: clusterstate dedups errored
+	// instances by ID, and unstable IDs would reset the group's backoff every loop.
+	again, err := ng.Nodes()
+	assert.NoError(t, err)
+	againIDs := map[string]struct{}{}
+	for _, inst := range again {
+		againIDs[inst.Id] = struct{}{}
+	}
+	for id := range byID {
+		assert.Contains(t, againIDs, id)
+	}
+}
+
+func TestNodeGroup_NodesPlaceholderGates(t *testing.T) {
+	tests := []struct {
+		name   string
+		count  int
+		state  string
+		health *crusoeapi.KubernetesNodePoolHealth
+	}{
+		{
+			name:  "no placeholders while an operation is in flight",
+			count: 10, state: "STATE_UPDATING", health: quotaIssueHealth(),
+		},
+		{
+			name:  "no placeholders without a health block",
+			count: 10, state: stateRunning, health: nil,
+		},
+		{
+			name:  "no placeholders for codes CA should not act on",
+			count: 10, state: stateRunning,
+			health: &crusoeapi.KubernetesNodePoolHealth{
+				Issues: []crusoeapi.KubernetesNodePoolHealthIssue{
+					{Code: "NODE_NOT_READY", Message: "1 node has been NotReady"},
+					{Code: "INTERNAL_ERROR", Message: "platform-side failure"},
+				},
+			},
+		},
+		{
+			name:  "no placeholders without a deficit",
+			count: 2, state: stateRunning, health: quotaIssueHealth(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ng, _ := testNodeGroupWithMocks(tt.count)
+			ng.pool.State = tt.state
+			ng.pool.Health = tt.health
+			ng.nodes = map[string]*crusoeapi.InstanceV1Alpha5{
+				"vm-1": {Id: "vm-1", State: "RUNNING"},
+				"vm-2": {Id: "vm-2", State: "RUNNING"},
+			}
+
+			instances, err := ng.Nodes()
+			assert.NoError(t, err)
+			assert.Len(t, instances, 2, "only the real nodes must be reported")
+		})
+	}
+}
+
+// placeholderTestNode builds the fake node CA core hands to DeleteNodes for an
+// errored placeholder instance (name and provider ID are both the instance ID).
+func placeholderTestNode(index int) *apiv1.Node {
+	id := toProviderID(placeholderNodeID(testNodePoolID, index))
+	return &apiv1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: id},
+		Spec:       apiv1.NodeSpec{ProviderID: id},
+	}
+}
+
+func TestNodeGroup_DeleteNodesPlaceholdersLowersCountOnly(t *testing.T) {
+	ctx := context.Background()
+	ng, mocks := testNodeGroupWithMocks(5)
+
+	// First refresh: the pool still wants 5 but holds 3, with a standing quota
+	// issue — the 2-node deficit is what the placeholders represented.
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id: testNodePoolID, ProjectId: testProjectID, ClusterId: testClusterID,
+			Count: 5, State: stateRunning, Health: quotaIssueHealth(),
+			InstanceIds: []string{"r1", "r2", "r3"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	// Second refresh, after the count write settled.
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id: testNodePoolID, ProjectId: testProjectID, ClusterId: testClusterID,
+			Count: 3, State: stateRunning,
+			InstanceIds: []string{"r1", "r2", "r3"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmApi.On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+		Ids: optional.NewString("r1,r2,r3"),
+	}).Return(
+		crusoeapi.ListInstancesResponseV1Alpha5{
+			Items: []crusoeapi.InstanceV1Alpha5{{Id: "r1"}, {Id: "r2"}, {Id: "r3"}},
+		}, httpSuccessResponse(), nil,
+	).Twice()
+
+	// Deleting the two placeholders gives up on the deficit: count 5 -> 3.
+	mocks.nodePoolsApi.On("UpdateNodePool", ctx,
+		crusoeapi.KubernetesNodePoolPatchRequest{Count: 3},
+		testProjectID, testNodePoolID,
+	).Return(
+		crusoeapi.AsyncOperationResponse{
+			Operation: &crusoeapi.Operation{OperationId: "opId", State: string(opInProgress)},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").Return(
+		crusoeapi.Operation{OperationId: "opId", State: string(opSucceeded)},
+		httpSuccessResponse(), nil,
+	).Once()
+
+	err := ng.DeleteNodes([]*apiv1.Node{placeholderTestNode(0), placeholderTestNode(1)})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), ng.pool.Count)
+	mocks.vmApi.AssertNotCalled(t, "DeleteInstance", mock.Anything, mock.Anything, mock.Anything)
+	mocks.nodePoolsApi.AssertExpectations(t)
+}
+
+func TestNodeGroup_DeleteNodesStalePlaceholdersOnHealedPool(t *testing.T) {
+	ctx := context.Background()
+	ng, mocks := testNodeGroupWithMocks(3)
+
+	// The platform filled the deficit between CA loops: the refresh inside
+	// DeleteNodes finds no gap, so deleting the now-stale placeholders must
+	// not shrink the healed pool.
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id: testNodePoolID, ProjectId: testProjectID, ClusterId: testClusterID,
+			Count: 3, State: stateRunning,
+			InstanceIds: []string{"r1", "r2", "r3"},
+		}, httpSuccessResponse(), nil,
+	).Twice()
+	mocks.vmApi.On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+		Ids: optional.NewString("r1,r2,r3"),
+	}).Return(
+		crusoeapi.ListInstancesResponseV1Alpha5{
+			Items: []crusoeapi.InstanceV1Alpha5{{Id: "r1"}, {Id: "r2"}, {Id: "r3"}},
+		}, httpSuccessResponse(), nil,
+	).Twice()
+
+	err := ng.DeleteNodes([]*apiv1.Node{placeholderTestNode(0), placeholderTestNode(1)})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(3), ng.pool.Count)
+	mocks.nodePoolsApi.AssertNotCalled(t, "UpdateNodePool", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mocks.vmApi.AssertNotCalled(t, "DeleteInstance", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestNodeGroup_DeleteNodesMixedBatch(t *testing.T) {
+	ctx := context.Background()
+	ng, mocks := testNodeGroupWithMocks(5)
+
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id: testNodePoolID, ProjectId: testProjectID, ClusterId: testClusterID,
+			Count: 5, State: stateRunning, Health: quotaIssueHealth(),
+			InstanceIds: []string{"r1", "r2", "r3"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, testNodePoolID).Return(
+		crusoeapi.KubernetesNodePool{
+			Id: testNodePoolID, ProjectId: testProjectID, ClusterId: testClusterID,
+			Count: 2, State: stateRunning,
+			InstanceIds: []string{"r2", "r3"},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmApi.On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+		Ids: optional.NewString("r1,r2,r3"),
+	}).Return(
+		crusoeapi.ListInstancesResponseV1Alpha5{
+			Items: []crusoeapi.InstanceV1Alpha5{{Id: "r1"}, {Id: "r2"}, {Id: "r3"}},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmApi.On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+		Ids: optional.NewString("r2,r3"),
+	}).Return(
+		crusoeapi.ListInstancesResponseV1Alpha5{
+			Items: []crusoeapi.InstanceV1Alpha5{{Id: "r2"}, {Id: "r3"}},
+		}, httpSuccessResponse(), nil,
+	).Once()
+
+	// One real node deleted plus the 2-node deficit given up: count 5 -> 2.
+	mocks.nodePoolsApi.On("UpdateNodePool", ctx,
+		crusoeapi.KubernetesNodePoolPatchRequest{Count: 2},
+		testProjectID, testNodePoolID,
+	).Return(
+		crusoeapi.AsyncOperationResponse{
+			Operation: &crusoeapi.Operation{OperationId: "opId", State: string(opInProgress)},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.nodePoolOpsApi.On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").Return(
+		crusoeapi.Operation{OperationId: "opId", State: string(opSucceeded)},
+		httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmApi.On("DeleteInstance", ctx, testProjectID, "r1").Return(
+		crusoeapi.AsyncOperationResponse{
+			Operation: &crusoeapi.Operation{OperationId: "vmOp1", State: string(opInProgress)},
+		}, httpSuccessResponse(), nil,
+	).Once()
+	mocks.vmOpsApi.On("GetComputeVMsInstancesOperation", mock.Anything, testProjectID, "vmOp1").Return(
+		crusoeapi.Operation{OperationId: "vmOp1", State: string(opSucceeded)},
+		httpSuccessResponse(), nil,
+	).Once()
+
+	realNode := &apiv1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "np-1.region.local"},
+		Spec:       apiv1.NodeSpec{ProviderID: toProviderID("r1")},
+	}
+
+	err := ng.DeleteNodes([]*apiv1.Node{realNode, placeholderTestNode(0), placeholderTestNode(1)})
+
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), ng.pool.Count)
 }
