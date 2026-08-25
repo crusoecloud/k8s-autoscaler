@@ -99,9 +99,16 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return fmt.Errorf("failed to refresh node group before attempting to increase size: %v", err)
 	}
 	if targetSize < ng.pool.Count {
+		// Returning an error matters here: nil would tell CA core the scale-up
+		// was accepted and leave it waiting max-node-provision-time for nodes
+		// that were never requested, while an error registers the failure and
+		// backs the group off immediately. This path fires whenever targetSize
+		// is clamped below the stored count (unhealthy/degraded pools) or the
+		// count moved under us between refreshes.
 		klog.Errorf("IncreaseSize,PoolID=%s, aborting IncreaseSize. "+
 			"Current node pool count on Crusoe Cloud already exceeds node group's target size", ng.Id())
-		return nil
+		return fmt.Errorf("node pool %s count (%d) already exceeds the requested target size (%d)",
+			ng.pool.Id, ng.pool.Count, targetSize)
 	}
 
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool.Id, targetSize)
@@ -494,14 +501,16 @@ func (ng *crusoeNodeGroup) removeNodeFromDeletionInProgressSet(nodeID string) {
 
 // setTargetSizeLocked should only be called when nodeGroupRWMutex is already held by the caller.
 // This method sets the target size of the node group based on the desired node count and current active nodes.
-// If the node pool is marked unhealthy, the target size defaults to the number of active nodes,
-// as the cloud provider will stop trying to fulfill the desired count.
+// If the node pool is marked unhealthy (v1) or degraded (v2), the target size defaults to the
+// number of active nodes, as the cloud provider has stopped trying to fulfill the desired count.
+// A RUNNING pool below its desired count is deliberately not clamped: in v2 that means the
+// platform is still converging, so the desired count is the honest target.
 func (ng *crusoeNodeGroup) setTargetSizeLocked() {
 	activeNodes := ng.calculateActiveNodesFromCacheLocked()
 	ng.targetSize = max(int(ng.pool.Count), activeNodes)
-	if ng.pool.State == stateUnhealthy {
-		klog.V(4).Infof("node pool with id %s is unhealthy, setting target size "+
-			"to the number of active nodes: %d", ng.pool.Id, activeNodes)
+	if ng.pool.State == stateUnhealthy || ng.pool.State == stateDegraded {
+		klog.V(4).Infof("node pool with id %s is %s, setting target size "+
+			"to the number of active nodes: %d", ng.pool.Id, ng.pool.State, activeNodes)
 		ng.targetSize = activeNodes
 	}
 

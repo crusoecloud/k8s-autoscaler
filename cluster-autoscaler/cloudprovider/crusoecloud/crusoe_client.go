@@ -42,6 +42,11 @@ const (
 	stateDeleting  = "STATE_DELETING"
 	stateDeleted   = "STATE_DELETED"
 	stateUnhealthy = "STATE_UNHEALTHY"
+	// stateDegraded is nodepools v2's successor to v1's STATE_UNHEALTHY: the
+	// platform exhausted retries for a non-capacity failure and stopped
+	// converging toward the desired count. v2 pools never report
+	// STATE_UNHEALTHY; v1 pools still do.
+	stateDegraded = "STATE_DEGRADED"
 )
 
 // AuthenticatingTransport is a struct implementing http.Roundtripper

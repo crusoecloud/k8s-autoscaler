@@ -565,3 +565,60 @@ func TestNodeGroup_ExistNotRunning(t *testing.T) {
 
 	assert.False(t, ng.Exist())
 }
+
+func TestNodeGroup_SetTargetSizeClampsWhenNotConverging(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      string
+		wantTarget int
+	}{
+		{name: "running pool keeps the desired count", state: stateRunning, wantTarget: 10},
+		{name: "unhealthy pool (v1) clamps to active nodes", state: stateUnhealthy, wantTarget: 2},
+		{name: "degraded pool (v2) clamps to active nodes", state: stateDegraded, wantTarget: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ng, _ := testNodeGroupWithMocks(10)
+			ng.pool.State = tt.state
+			ng.nodes = map[string]*crusoeapi.InstanceV1Alpha5{
+				"vm-1": {Id: "vm-1", State: "RUNNING"},
+				"vm-2": {Id: "vm-2", State: "RUNNING"},
+			}
+
+			ng.setTargetSizeLocked()
+
+			assert.Equal(t, tt.wantTarget, ng.targetSize)
+		})
+	}
+}
+
+func TestNodeGroup_IncreaseSizeBelowStoredCountReturnsError(t *testing.T) {
+	ctx := context.Background()
+	ng, mocks := testNodeGroupWithMocks(3)
+
+	// The refresh inside IncreaseSize discovers the pool's stored count is
+	// already above the requested target (3+2=5 < 8). The provider must return
+	// an error so CA core registers the failed scale-up and backs the group
+	// off; returning nil would leave CA waiting max-node-provision-time for
+	// nodes that were never requested.
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(
+			crusoeapi.KubernetesNodePool{
+				Id:          testNodePoolID,
+				ProjectId:   testProjectID,
+				ClusterId:   testClusterID,
+				Count:       8,
+				State:       stateRunning,
+				InstanceIds: []string{},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	err := ng.IncreaseSize(2)
+
+	assert.Error(t, err)
+	mocks.nodePoolsApi.AssertNotCalled(t, "UpdateNodePool", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
