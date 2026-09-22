@@ -1,6 +1,7 @@
 include:
   - project: 'crusoeenergy/tools'
     file: '/templates/go.gitlab-ci.yml'
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/wiz-deps@master
 
 variables:
   CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.22"
