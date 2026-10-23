@@ -146,7 +146,7 @@ func (lf *LimitsFinder) customResourcesTotal(context *context.AutoscalingContext
 		if !cacheHit {
 			resourceTargets, err = lf.crp.GetNodeResourceTargets(context, node, nodeGroup)
 			if err != nil {
-				return nil, errors.ToAutoscalerError(errors.CloudProviderError, err).AddPrefix("cannot get custom resource count for node %v when calculating cluster custom resource usage")
+				return nil, errors.ToAutoscalerError(errors.CloudProviderError, err).AddPrefix("cannot get custom resource count for node %v when calculating cluster custom resource usage: ", node.Name)
 			}
 			if nodeGroup != nil {
 				ngCache[nodeGroup.Id()] = resourceTargets
@@ -185,7 +185,7 @@ func (lf *LimitsFinder) DeltaForNode(context *context.AutoscalingContext, node *
 	if cloudprovider.ContainsCustomResources(resourcesWithLimits) {
 		resourceTargets, err := lf.crp.GetNodeResourceTargets(context, node, nodeGroup)
 		if err != nil {
-			return Delta{}, errors.ToAutoscalerError(errors.CloudProviderError, err).AddPrefix("failed to get node %v custom resources: %v", node.Name)
+			return Delta{}, errors.ToAutoscalerError(errors.CloudProviderError, err).AddPrefix("failed to get node %v custom resources: ", node.Name)
 		}
 		for _, resourceTarget := range resourceTargets {
 			resultScaleDownDelta[resourceTarget.ResourceType] = resourceTarget.ResourceCount
