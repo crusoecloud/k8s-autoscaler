@@ -284,18 +284,21 @@ func (mgr *crusoeManager) Refresh() error {
 }
 
 // resolveNodeGroupSpec decides whether this autoscaler manages a nodepool, and
-// within which bounds. The presence of the pool's autoscaling_config decides
-// where the answer comes from, not its bounds:
+// within which bounds. The API can only opt a pool in:
 //
-//   - enabled: the pool is autoscaled within the block's bounds, whether or
-//     not it is listed in --nodes, and any --nodes bounds for it are ignored;
-//   - disabled: the pool is not autoscaled, even if it is listed in --nodes,
-//     whatever bounds the block retains (including [0, 0]);
-//   - absent: the pool has never had autoscaling configured through the API,
-//     and its --nodes entry, if any, applies.
+//   - enabled: the API owns the pool, which is autoscaled within the block's
+//     bounds whether or not it is listed in --nodes; any --nodes bounds for it
+//     are ignored;
+//   - disabled or absent: the pool follows --nodes. It is autoscaled within
+//     its --nodes bounds if listed there, and not managed otherwise. Any
+//     bounds a disabled block retains are ignored.
 //
-// The API serves no block for a pool that was never configured, so a pool
-// disabled at [0, 0] is not mistaken for one that never adopted the API.
+// A disabled block is treated like an absent one because the API cannot tell
+// them apart reliably: it serves no block for a pool that was never
+// configured, including one explicitly disabled before any bounds were set.
+//
+// An enabled block with invalid bounds does not fall back to --nodes: the
+// API owns the pool, so it is not managed until the bounds are fixed.
 //
 // A nil spec with a nil error means the pool is not managed; the reason is
 // logged here. A non-nil error means the block is enabled with invalid
@@ -318,15 +321,14 @@ func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePoo
 		return spec, boundsSourceAPI, nil
 	}
 
-	if ac != nil {
-		klog.V(4).Infof("Skipping nodepool %s (%s): autoscaling_config is disabled", pool.Name, pool.Id)
-		return nil, "", nil
-	}
-
 	spec, ok := mgr.nodeGroupSpecs[pool.Name]
 	if !ok {
-		klog.V(4).Infof("Skipping nodepool %s (%s): no autoscaling_config and not listed in the autoscaler's node group config",
-			pool.Name, pool.Id)
+		reason := "no autoscaling_config"
+		if ac != nil {
+			reason = "autoscaling_config is disabled"
+		}
+		klog.V(4).Infof("Skipping nodepool %s (%s): %s and not listed in the autoscaler's node group config",
+			pool.Name, pool.Id, reason)
 		return nil, "", nil
 	}
 	return spec, boundsSourceFlags, nil

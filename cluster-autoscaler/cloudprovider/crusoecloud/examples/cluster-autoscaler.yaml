@@ -145,13 +145,13 @@ spec:
             - --logtostderr=true
             - --v=4
             - --cloud-provider=crusoecloud
-            # A nodepool with an enabled autoscaling_config in the Crusoe Cloud API is
-            # autoscaled within those bounds whether or not it is listed here, and a
-            # nodepool with a disabled autoscaling_config is never autoscaled, even if
-            # listed here. Only a nodepool with no autoscaling_config uses --nodes:
-            # repeat --nodes for every such nodepool the autoscaler should manage;
-            # the rest are ignored. Per-nodepool autoscaling_config is only applicable
-            # when a supported cluster autoscaler version is installed in the cluster.
+            # An enabled autoscaling_config in the Crusoe Cloud API overrides --nodes:
+            # the nodepool is autoscaled within those bounds whether or not it is
+            # listed here. Otherwise (autoscaling_config disabled or absent) the
+            # nodepool follows --nodes: repeat --nodes for every such nodepool the
+            # autoscaler should manage; the rest are ignored. Per-nodepool
+            # autoscaling_config is only applicable when a supported cluster
+            # autoscaler version is installed in the cluster.
             - --nodes=<min>:<max>:<nodepool>
           envFrom:
             - secretRef:
