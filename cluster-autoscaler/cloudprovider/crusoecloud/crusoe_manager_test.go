@@ -405,23 +405,36 @@ func TestManager_RefreshBoundsFromAutoscalingConfig(t *testing.T) {
 	assert.Equal(t, 7, nodeGroups[1].MaxSize())
 }
 
-func TestManager_RefreshSkipsDisabledNodePools(t *testing.T) {
+// A disabled block is treated like no block: the pool follows --nodes, and any
+// bounds the block retains are ignored.
+func TestManager_RefreshDisabledFallsBackToFlags(t *testing.T) {
+	ctx := context.Background()
 	mgr, mocks := testManagerWithMocks()
-	// A --nodes entry must not bring back a pool whose autoscaling is disabled.
 	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
 		"disabled-pool":         {Name: "disabled-pool", MinSize: 1, MaxSize: 5},
 		"disabled-at-zero-pool": {Name: "disabled-at-zero-pool", MinSize: 1, MaxSize: 10},
 	}
-	// Disabled at [0, 0]: the block's presence alone marks the pool as
-	// configured through the API. It must be skipped, not mistaken for a pool
-	// that never had a block and handed to the --nodes fallback.
-	listPoolsOnce(mocks,
-		testPool("disabled-pool", disabledConfig(2, 3)),
-		testPool("disabled-at-zero-pool", disabledConfig(0, 0)),
-	)
+	// Listed in --nodes, with retained bounds that differ from the flags.
+	retained := testPool("disabled-pool", disabledConfig(2, 3))
+	// Listed in --nodes, disabled at [0, 0].
+	atZero := testPool("disabled-at-zero-pool", disabledConfig(0, 0))
+	// Not listed in --nodes: not managed.
+	unlisted := testPool("disabled-unlisted-pool", disabledConfig(1, 4))
+
+	listPoolsOnce(mocks, retained, atZero, unlisted)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, retained.Id).Return(retained, httpSuccessResponse(), nil)
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, atZero.Id).Return(atZero, httpSuccessResponse(), nil)
 
 	require.NoError(t, mgr.Refresh())
-	assert.Empty(t, mgr.NodeGroups())
+
+	nodeGroups := mgr.NodeGroups()
+	require.Len(t, nodeGroups, 2)
+	assert.Equal(t, "disabled-pool", nodeGroups[0].pool.Name)
+	assert.Equal(t, 1, nodeGroups[0].MinSize())
+	assert.Equal(t, 5, nodeGroups[0].MaxSize())
+	assert.Equal(t, "disabled-at-zero-pool", nodeGroups[1].pool.Name)
+	assert.Equal(t, 1, nodeGroups[1].MinSize())
+	assert.Equal(t, 10, nodeGroups[1].MaxSize())
 }
 
 func TestManager_RefreshWithoutAutoscalingConfigFallsBackToFlags(t *testing.T) {
@@ -505,23 +518,30 @@ func TestManager_RefreshUpdatesBoundsAcrossRefreshes(t *testing.T) {
 	assert.Equal(t, 6, refreshed[0].MaxSize())
 }
 
-// A cached node group is dropped as soon as its pool's autoscaling_config is
-// disabled or turns invalid, even though the pool is listed in --nodes.
+// A cached node group is dropped when its pool is no longer managed: its
+// enabled block turns invalid (even though the pool is listed in --nodes,
+// since the API owns it), or its block is disabled and the pool is not listed
+// in --nodes.
 func TestManager_RefreshDropsCachedNodeGroup(t *testing.T) {
-	for name, next := range map[string]*crusoeapi.KubernetesNodePoolAutoscalingConfig{
-		"enabled to disabled": disabledConfig(1, 3),
-		"enabled to invalid":  enabledConfig(4, 2),
+	for name, tc := range map[string]struct {
+		next   *crusoeapi.KubernetesNodePoolAutoscalingConfig
+		listed bool
+	}{
+		"enabled to invalid, listed":      {next: enabledConfig(4, 2), listed: true},
+		"enabled to disabled, not listed": {next: disabledConfig(1, 3), listed: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			mgr, mocks := testManagerWithMocks()
-			mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
-				"autoscaled-pool": {Name: "autoscaled-pool", MinSize: 1, MaxSize: 4},
+			if tc.listed {
+				mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+					"autoscaled-pool": {Name: "autoscaled-pool", MinSize: 1, MaxSize: 4},
+				}
 			}
 			pool := testPool("autoscaled-pool", enabledConfig(1, 3))
 
 			listPoolsOnce(mocks, pool)
-			listPoolsOnce(mocks, testPool("autoscaled-pool", next))
+			listPoolsOnce(mocks, testPool("autoscaled-pool", tc.next))
 			mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, pool.Id).Return(pool, httpSuccessResponse(), nil)
 
 			require.NoError(t, mgr.Refresh())
@@ -533,33 +553,40 @@ func TestManager_RefreshDropsCachedNodeGroup(t *testing.T) {
 	}
 }
 
-// When the API stops serving the block, the pool falls back to its --nodes
-// entry: the cached node group is kept and takes the flag bounds.
-func TestManager_RefreshFallsBackToFlagsWhenBlockDisappears(t *testing.T) {
-	ctx := context.Background()
-	mgr, mocks := testManagerWithMocks()
-	mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
-		"autoscaled-pool": {Name: "autoscaled-pool", MinSize: 1, MaxSize: 4},
+// When the block is disabled or the API stops serving it, a pool listed in
+// --nodes falls back to its entry: the cached node group is kept and takes the
+// flag bounds, not any bounds the disabled block retains.
+func TestManager_RefreshFallsBackToFlagsWhenBlockDisabledOrRemoved(t *testing.T) {
+	for name, next := range map[string]*crusoeapi.KubernetesNodePoolAutoscalingConfig{
+		"block disabled": disabledConfig(0, 8),
+		"block removed":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			mgr, mocks := testManagerWithMocks()
+			mgr.nodeGroupSpecs = map[string]*dynamic.NodeGroupSpec{
+				"autoscaled-pool": {Name: "autoscaled-pool", MinSize: 1, MaxSize: 4},
+			}
+			withBlock := testPool("autoscaled-pool", enabledConfig(0, 8))
+
+			listPoolsOnce(mocks, withBlock)
+			listPoolsOnce(mocks, testPool("autoscaled-pool", next))
+			mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, withBlock.Id).Return(withBlock, httpSuccessResponse(), nil)
+
+			require.NoError(t, mgr.Refresh())
+			nodeGroups := mgr.NodeGroups()
+			require.Len(t, nodeGroups, 1)
+			assert.Equal(t, 0, nodeGroups[0].MinSize())
+			assert.Equal(t, 8, nodeGroups[0].MaxSize())
+
+			require.NoError(t, mgr.Refresh())
+			refreshed := mgr.NodeGroups()
+			require.Len(t, refreshed, 1)
+			assert.Same(t, nodeGroups[0], refreshed[0])
+			assert.Equal(t, 1, refreshed[0].MinSize())
+			assert.Equal(t, 4, refreshed[0].MaxSize())
+		})
 	}
-	withBlock := testPool("autoscaled-pool", enabledConfig(0, 8))
-	withoutBlock := testPool("autoscaled-pool", nil)
-
-	listPoolsOnce(mocks, withBlock)
-	listPoolsOnce(mocks, withoutBlock)
-	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, withBlock.Id).Return(withBlock, httpSuccessResponse(), nil)
-
-	require.NoError(t, mgr.Refresh())
-	nodeGroups := mgr.NodeGroups()
-	require.Len(t, nodeGroups, 1)
-	assert.Equal(t, 0, nodeGroups[0].MinSize())
-	assert.Equal(t, 8, nodeGroups[0].MaxSize())
-
-	require.NoError(t, mgr.Refresh())
-	refreshed := mgr.NodeGroups()
-	require.Len(t, refreshed, 1)
-	assert.Same(t, nodeGroups[0], refreshed[0])
-	assert.Equal(t, 1, refreshed[0].MinSize())
-	assert.Equal(t, 4, refreshed[0].MaxSize())
 }
 
 // The invalid-bounds warning is logged when a pool's invalid bounds are first

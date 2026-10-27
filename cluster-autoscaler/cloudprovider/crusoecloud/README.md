@@ -17,21 +17,23 @@ Nodepool size constraints come from one of two places:
   `cluster-autoscaler` deployment (created in the `crusoe-system` namespace), where
   `<nodepool>` is the name of the nodepool.
 
-For each nodepool, the autoscaler applies the first rule that matches:
+For each nodepool, an enabled `autoscaling_config` overrides `--nodes`; otherwise the
+nodepool follows `--nodes`:
 
-1. `autoscaling_config` is present and enabled: the nodepool is autoscaled within its
+1. `autoscaling_config` is enabled: the nodepool is autoscaled within its
    `autoscaling_config` bounds, whether or not it is listed in a `--nodes` argument, and
    any `--nodes` bounds for it are ignored. Bounds of `[0, 0]` are valid and keep the
    nodepool at zero nodes.
-2. `autoscaling_config` is present and disabled: the nodepool is not autoscaled, even if it
-   is listed in a `--nodes` argument.
-3. The nodepool has no `autoscaling_config`: the nodepool is autoscaled within its `--nodes`
-   bounds if it is listed in a `--nodes` argument, and is not autoscaled otherwise.
+2. `autoscaling_config` is disabled or absent: the nodepool is autoscaled within its
+   `--nodes` bounds if it is listed in a `--nodes` argument, and is not autoscaled
+   otherwise. Any bounds a disabled `autoscaling_config` retains are ignored, so `--nodes`
+   remains the way to autoscale a nodepool whose `autoscaling_config` is disabled.
 
 The autoscaler re-reads each nodepool's `autoscaling_config` on every loop, so changes to
 it take effect without restarting the autoscaler. A nodepool whose enabled
 `autoscaling_config` has invalid bounds (for example, `min_node_size` above
-`max_node_size`) is not autoscaled, and a warning is logged.
+`max_node_size`) is not autoscaled, even if it is listed in a `--nodes` argument, and a
+warning is logged.
 
 Per-nodepool `autoscaling_config` is only applicable when a supported cluster autoscaler
 version is installed in the cluster. Older versions ignore `autoscaling_config` and manage
