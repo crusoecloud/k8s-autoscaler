@@ -145,8 +145,13 @@ spec:
             - --logtostderr=true
             - --v=4
             - --cloud-provider=crusoecloud
-            # Repeat --nodes for every nodepool the autoscaler should manage.
-            # Nodepools without a --nodes entry are ignored by the autoscaler.
+            # A nodepool with an enabled autoscaling_config in the Crusoe Cloud API is
+            # autoscaled within those bounds whether or not it is listed here, and a
+            # nodepool with a disabled autoscaling_config is never autoscaled, even if
+            # listed here. Only a nodepool with no autoscaling_config uses --nodes:
+            # repeat --nodes for every such nodepool the autoscaler should manage;
+            # the rest are ignored. Per-nodepool autoscaling_config is only applicable
+            # when a supported cluster autoscaler version is installed in the cluster.
             - --nodes=<min>:<max>:<nodepool>
           envFrom:
             - secretRef:

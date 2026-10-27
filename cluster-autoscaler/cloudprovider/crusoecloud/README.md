@@ -9,22 +9,44 @@ attached to a Crusoe Managed Kubernetes (CMK) cluster.
 
 When creating the CMK cluster, specify the `cluster-autoscaler` add-on.
 
-In order to configure nodepool size constraints, edit the `cluster-autoscaler` deployment
-(which will be created in the `crusoe-system` namespace) and add one or more command line
-arguments of the form `--nodes=<min>:<max>:<nodepool>` where `<nodepool>` is the name of
-the nodepool.
+Nodepool size constraints come from one of two places:
 
-The autoscaler only manages nodepools that are explicitly listed in a `--nodes` argument;
-all other nodepools are ignored. **Breaking change:** older versions applied default
-bounds (min=1, max=254) to nodepools that were not listed, so the autoscaler could scale
-nodepools the user never configured. When upgrading, add a `--nodes` argument for every
-nodepool that should remain autoscaled — any nodepool without one will no longer be
-scaled up or down.
+- The nodepool's `autoscaling_config` in the Crusoe Cloud API (`enabled`, `min_node_size`,
+  `max_node_size`), set when the nodepool is created or updated.
+- A command line argument of the form `--nodes=<min>:<max>:<nodepool>` on the
+  `cluster-autoscaler` deployment (created in the `crusoe-system` namespace), where
+  `<nodepool>` is the name of the nodepool.
+
+For each nodepool, the autoscaler applies the first rule that matches:
+
+1. `autoscaling_config` is present and enabled: the nodepool is autoscaled within its
+   `autoscaling_config` bounds, whether or not it is listed in a `--nodes` argument, and
+   any `--nodes` bounds for it are ignored. Bounds of `[0, 0]` are valid and keep the
+   nodepool at zero nodes.
+2. `autoscaling_config` is present and disabled: the nodepool is not autoscaled, even if it
+   is listed in a `--nodes` argument.
+3. The nodepool has no `autoscaling_config`: the nodepool is autoscaled within its `--nodes`
+   bounds if it is listed in a `--nodes` argument, and is not autoscaled otherwise.
+
+The autoscaler re-reads each nodepool's `autoscaling_config` on every loop, so changes to
+it take effect without restarting the autoscaler. A nodepool whose enabled
+`autoscaling_config` has invalid bounds (for example, `min_node_size` above
+`max_node_size`) is not autoscaled, and a warning is logged.
+
+Per-nodepool `autoscaling_config` is only applicable when a supported cluster autoscaler
+version is installed in the cluster. Older versions ignore `autoscaling_config` and manage
+only the nodepools listed in a `--nodes` argument.
+
+**Breaking change:** older versions applied default bounds (min=1, max=254) to nodepools
+that were not listed in a `--nodes` argument, so the autoscaler could scale nodepools the
+user never configured. Nodepools that have neither an enabled `autoscaling_config` nor a
+`--nodes` argument are no longer scaled up or down.
 
 ### In-cluster
 
 Edit [`examples/cluster-autoscaler.yaml`](./examples/cluster-autoscaler.yaml) to configure
-nodepool constraints as above (the `--nodes` command line argument) and deploy using kubectl:
+nodepool constraints as above (`autoscaling_config` or the `--nodes` command line argument)
+and deploy using kubectl:
 
 ```console
 kubectl apply -f examples/cluster-autoscaler.yaml
