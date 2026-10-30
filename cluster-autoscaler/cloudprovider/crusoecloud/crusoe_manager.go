@@ -52,6 +52,16 @@ const (
 	amdVNICResourceName          apiv1.ResourceName = "amd.com/vnics"
 
 	instanceTypeDetailRefreshCoolDown = 6 * time.Hour
+
+	// Where a node group's scaling bounds come from: the nodepool's
+	// autoscaling_config served by the API (v2 nodepools), or the --nodes flag
+	// (v1 nodepools).
+	boundsSourceAPI   = "api"
+	boundsSourceFlags = "flags"
+
+	// nodePoolGenerationV2 is the node_pool_generation the API serves for v2
+	// nodepools. Any other value, including an unset one, is a v1 nodepool.
+	nodePoolGenerationV2 = 2
 )
 
 type crusoeCloudConfig struct {
@@ -124,6 +134,23 @@ type crusoeManager struct {
 	instanceTypeDetailMap map[string]*crusoeInstanceTypeDetail
 	// cool down before crusoeManager can fetch new instance type detail
 	instanceTypeRefreshLastRefresh time.Time
+	// invalidBounds holds, per nodepool ID, the enabled autoscaling_config
+	// bounds that the last Refresh rejected as invalid, so the warning is
+	// logged once per change rather than on every loop.
+	invalidBounds map[string]autoscalingBounds
+	// ignoredFlagPools holds the IDs of v2 nodepools listed in --nodes as of
+	// the last Refresh, so the error is logged once per nodepool rather than on
+	// every loop.
+	ignoredFlagPools map[string]struct{}
+	// poolLogLines holds, per nodepool ID, the last line Refresh logged about
+	// its bounds or why it is skipped, so the line is logged once per change
+	// rather than on every loop.
+	poolLogLines map[string]string
+}
+
+// autoscalingBounds is a nodepool's [min, max] as served in its autoscaling_config.
+type autoscalingBounds struct {
+	min, max int64
 }
 
 func newManager(configFile io.Reader, discoveryOpts cloudprovider.NodeGroupDiscoveryOptions, userAgent string) (*crusoeManager, error) {
@@ -206,6 +233,9 @@ func (mgr *crusoeManager) Refresh() error {
 		mgr.projectID, mgr.clusterID, len(pools))
 
 	var ngs []*crusoeNodeGroup
+	invalidBounds := map[string]autoscalingBounds{}
+	ignoredFlagPools := map[string]struct{}{}
+	poolLogLines := map[string]string{}
 	cachedPoolIDToNodeGroupsMap := map[string]*crusoeNodeGroup{}
 	for _, ng := range mgr.nodeGroups {
 		cachedPoolIDToNodeGroupsMap[ng.pool.Id] = ng
@@ -219,14 +249,42 @@ func (mgr *crusoeManager) Refresh() error {
 			continue
 		}
 
-		spec, ok := mgr.nodeGroupSpecs[p.Name]
-		if !ok {
-			klog.V(4).Infof("Skipping nodepool %s (%s): not listed in the autoscaler's node group config",
-				p.Name, p.Id)
+		if _, listed := mgr.nodeGroupSpecs[p.Name]; listed && isNodePoolV2(&p) {
+			if _, seen := mgr.ignoredFlagPools[p.Id]; !seen {
+				klog.Errorf("Ignoring --nodes entry for v2 nodepool %s (%s): v2 nodepools are autoscaled "+
+					"only within their autoscaling_config in the Crusoe Cloud API. Set the bounds there "+
+					"and remove the --nodes entry.", p.Name, p.Id)
+			}
+			ignoredFlagPools[p.Id] = struct{}{}
+		}
+
+		spec, detail, err := mgr.resolveNodeGroupSpec(&p)
+		if err != nil {
+			bounds := autoscalingBounds{min: p.AutoscalingConfig.MinNodeSize, max: p.AutoscalingConfig.MaxNodeSize}
+			if prev, seen := mgr.invalidBounds[p.Id]; !seen || prev != bounds {
+				klog.Warningf("Skipping nodepool %s (%s): %v", p.Name, p.Id, err)
+			}
+			invalidBounds[p.Id] = bounds
+			continue
+		}
+
+		line := fmt.Sprintf("Skipping nodepool %s (%s): %s", p.Name, p.Id, detail)
+		if spec != nil {
+			line = fmt.Sprintf("Nodepool %s (%s): scaling bounds [%d, %d], source=%s",
+				p.Name, p.Id, spec.MinSize, spec.MaxSize, detail)
+		}
+		if mgr.poolLogLines[p.Id] != line {
+			klog.V(4).Info(line)
+		}
+		poolLogLines[p.Id] = line
+		if spec == nil {
 			continue
 		}
 
 		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
+			// Bounds can change between loops (autoscaling_config edited,
+			// or the pool migrating from v1 to v2).
+			cachedNg.spec = spec
 			if err := cachedNg.refresh(); err != nil {
 				klog.Errorf("Refresh failed for nodepool %s: %s", p.Id, err)
 			}
@@ -250,8 +308,64 @@ func (mgr *crusoeManager) Refresh() error {
 	klog.V(4).Infof("Refresh,ClusterID=%s,%d pools found", mgr.clusterID, len(ngs))
 
 	mgr.nodeGroups = ngs
+	mgr.invalidBounds = invalidBounds
+	mgr.ignoredFlagPools = ignoredFlagPools
+	mgr.poolLogLines = poolLogLines
 
 	return nil
+}
+
+// isNodePoolV2 reports whether the API serves pool as a v2 nodepool.
+func isNodePoolV2(pool *crusoeapi.KubernetesNodePool) bool {
+	return pool.NodePoolGeneration == nodePoolGenerationV2
+}
+
+// resolveNodeGroupSpec decides whether this autoscaler manages a nodepool, and
+// within which bounds. The nodepool's generation decides where the bounds
+// come from, and there is no fallback between the two:
+//
+//   - v2: only the API. An enabled autoscaling_config autoscales the pool
+//     within its bounds; a disabled or absent one leaves the pool unmanaged.
+//     A --nodes entry for the pool is ignored (Refresh logs an error).
+//   - v1: only --nodes. The pool is autoscaled within its --nodes bounds if
+//     listed there, and not managed otherwise. The API does not accept an
+//     autoscaling_config for v1 nodepools, so any it serves is ignored.
+//
+// For a managed pool, the second result names the bounds source; a nil spec
+// with a nil error means the pool is not managed, and the second result says
+// why. A non-nil error means the v2 pool's block is enabled with
+// invalid bounds; the pool is not managed and the caller decides how loudly
+// to log.
+func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePool) (*dynamic.NodeGroupSpec, string, error) {
+	if !isNodePoolV2(pool) {
+		spec, ok := mgr.nodeGroupSpecs[pool.Name]
+		if !ok {
+			return nil, "v1 nodepool not listed in the autoscaler's node group config", nil
+		}
+		return spec, boundsSourceFlags, nil
+	}
+
+	ac := pool.AutoscalingConfig
+	if ac == nil {
+		return nil, "v2 nodepool has no autoscaling_config", nil
+	}
+	if !ac.Enabled {
+		return nil, "v2 nodepool's autoscaling_config is disabled", nil
+	}
+
+	spec := &dynamic.NodeGroupSpec{
+		Name:               pool.Name,
+		MinSize:            int(ac.MinNodeSize),
+		MaxSize:            int(ac.MaxNodeSize),
+		SupportScaleToZero: scaleToZeroSupported,
+	}
+	// [0, 0] is valid: the group registers pinned at zero, and CA keeps it
+	// inert because a scale-up needs the target to be below MaxSize.
+	if err := spec.Validate(); err != nil {
+		return nil, "", fmt.Errorf("invalid autoscaling_config bounds [%d, %d]: %w",
+			ac.MinNodeSize, ac.MaxNodeSize, err)
+	}
+	return spec, boundsSourceAPI, nil
 }
 
 func (mgr *crusoeManager) ListNodePools(ctx context.Context) ([]crusoeapi.KubernetesNodePool, error) {
@@ -287,15 +401,20 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 	return &resp, nil
 }
 
-// The Crusoe KubernetesNodePoolPatchRequest model doesn't specify omitempty on most fields, so any
-// field left at its Go zero value is serialized and treated by the server as
-// an explicit reset. To avoid this, we carry forward the existing pool's
-// values for every other field.
+// UpdateNodePool sets the pool's desired node count to targetSize.
+//
+// The PATCH applies every non-null field and several fields lack omitempty, so
+// the request echoes the pool's current value wherever a zero value would
+// reset a setting: ephemeral_storage_for_containerd, ssh_public_key, the user
+// node labels and reservation_id. node_taints is left null (unchanged), since
+// an echo could fail validation or revert a concurrent edit. pool must be
+// freshly read.
 func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, pool *crusoeapi.KubernetesNodePool, targetSize int64) (*crusoeapi.Operation, error) {
 	req := crusoeapi.KubernetesNodePoolPatchRequest{
 		Action:                        "UPDATE",
 		Count:                         targetSize,
 		EphemeralStorageForContainerd: pool.EphemeralStorageForContainerd,
+		SshPublicKey:                  pool.SshPublicKey,
 	}
 	if labels := userNodeLabels(pool.NodeLabels); len(labels) > 0 {
 		req.NodeLabels = labels
