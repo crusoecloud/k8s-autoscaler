@@ -79,16 +79,21 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 	// The first refresh (before we call UpdateNodePool)
 	// plus the second refresh (after the operation completes)
 	// means we expect TWO calls to GetNodePool:
+	// The first read carries settings the cached ng.pool lacks: the resize
+	// must echo these freshly read values, not the cached ones.
 	mocks.nodePoolsApi.
 		On("GetNodePool", ctx, testProjectID, testNodePoolID).
 		Return(
 			crusoeapi.KubernetesNodePool{
-				Id:          testNodePoolID,
-				ProjectId:   testProjectID,
-				ClusterId:   testClusterID,
-				Count:       int64(curNumNodes), // current count before resize
-				State:       stateRunning,
-				InstanceIds: []string{"nodeId1", "nodeId2", "nodeId3"},
+				Id:                            testNodePoolID,
+				ProjectId:                     testProjectID,
+				ClusterId:                     testClusterID,
+				Count:                         int64(curNumNodes), // current count before resize
+				State:                         stateRunning,
+				InstanceIds:                   []string{"nodeId1", "nodeId2", "nodeId3"},
+				EphemeralStorageForContainerd: true,
+				NodeLabels:                    map[string]string{"team": "ml", crusoePrefix + "nodepool.id": testNodePoolID},
+				SshPublicKey:                  "ssh-ed25519 AAAAfresh user@host",
 			},
 			httpSuccessResponse(),
 			nil,
@@ -152,7 +157,13 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 	mocks.nodePoolsApi.
 		On("UpdateNodePool",
 			ctx,
-			crusoeapi.KubernetesNodePoolPatchRequest{Action: "UPDATE", Count: newNumNodes},
+			crusoeapi.KubernetesNodePoolPatchRequest{
+				Action:                        "UPDATE",
+				Count:                         newNumNodes,
+				EphemeralStorageForContainerd: true,
+				NodeLabels:                    map[string]string{"team": "ml"},
+				SshPublicKey:                  "ssh-ed25519 AAAAfresh user@host",
+			},
 			testProjectID,
 			testNodePoolID,
 		).
