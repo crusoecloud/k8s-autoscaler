@@ -86,7 +86,7 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	ng.scalingMutex.Lock()
 	defer ng.scalingMutex.Unlock()
 
-	klog.V(4).Infof("IncreaseSize (delta = %d) for node pool with id %s", delta, ng.pool.ClusterId)
+	klog.V(4).Infof("IncreaseSize (delta = %d) for node pool with id %s", delta, ng.pool.Id)
 
 	targetSize := int64(ng.targetSize + delta)
 	if targetSize > int64(ng.MaxSize()) {
