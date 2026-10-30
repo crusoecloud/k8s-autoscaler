@@ -142,6 +142,10 @@ type crusoeManager struct {
 	// the last Refresh, so the error is logged once per nodepool rather than on
 	// every loop.
 	ignoredFlagPools map[string]struct{}
+	// poolLogLines holds, per nodepool ID, the last line Refresh logged about
+	// its bounds or why it is skipped, so the line is logged once per change
+	// rather than on every loop.
+	poolLogLines map[string]string
 }
 
 // autoscalingBounds is a nodepool's [min, max] as served in its autoscaling_config.
@@ -231,6 +235,7 @@ func (mgr *crusoeManager) Refresh() error {
 	var ngs []*crusoeNodeGroup
 	invalidBounds := map[string]autoscalingBounds{}
 	ignoredFlagPools := map[string]struct{}{}
+	poolLogLines := map[string]string{}
 	cachedPoolIDToNodeGroupsMap := map[string]*crusoeNodeGroup{}
 	for _, ng := range mgr.nodeGroups {
 		cachedPoolIDToNodeGroupsMap[ng.pool.Id] = ng
@@ -253,22 +258,28 @@ func (mgr *crusoeManager) Refresh() error {
 			ignoredFlagPools[p.Id] = struct{}{}
 		}
 
-		spec, boundsSource, err := mgr.resolveNodeGroupSpec(&p)
+		spec, detail, err := mgr.resolveNodeGroupSpec(&p)
 		if err != nil {
 			bounds := autoscalingBounds{min: p.AutoscalingConfig.MinNodeSize, max: p.AutoscalingConfig.MaxNodeSize}
 			if prev, seen := mgr.invalidBounds[p.Id]; !seen || prev != bounds {
 				klog.Warningf("Skipping nodepool %s (%s): %v", p.Name, p.Id, err)
-			} else {
-				klog.V(4).Infof("Skipping nodepool %s (%s): %v", p.Name, p.Id, err)
 			}
 			invalidBounds[p.Id] = bounds
 			continue
 		}
+
+		line := fmt.Sprintf("Skipping nodepool %s (%s): %s", p.Name, p.Id, detail)
+		if spec != nil {
+			line = fmt.Sprintf("Nodepool %s (%s): scaling bounds [%d, %d], source=%s",
+				p.Name, p.Id, spec.MinSize, spec.MaxSize, detail)
+		}
+		if mgr.poolLogLines[p.Id] != line {
+			klog.V(4).Info(line)
+		}
+		poolLogLines[p.Id] = line
 		if spec == nil {
 			continue
 		}
-		klog.V(4).Infof("Nodepool %s (%s): scaling bounds [%d, %d], source=%s",
-			p.Name, p.Id, spec.MinSize, spec.MaxSize, boundsSource)
 
 		if cachedNg, ok := cachedPoolIDToNodeGroupsMap[p.Id]; ok {
 			// Bounds can change between loops (autoscaling_config edited,
@@ -299,6 +310,7 @@ func (mgr *crusoeManager) Refresh() error {
 	mgr.nodeGroups = ngs
 	mgr.invalidBounds = invalidBounds
 	mgr.ignoredFlagPools = ignoredFlagPools
+	mgr.poolLogLines = poolLogLines
 
 	return nil
 }
@@ -319,29 +331,26 @@ func isNodePoolV2(pool *crusoeapi.KubernetesNodePool) bool {
 //     listed there, and not managed otherwise. The API does not accept an
 //     autoscaling_config for v1 nodepools, so any it serves is ignored.
 //
-// A nil spec with a nil error means the pool is not managed; the reason is
-// logged here. A non-nil error means the v2 pool's block is enabled with
+// For a managed pool, the second result names the bounds source; a nil spec
+// with a nil error means the pool is not managed, and the second result says
+// why. A non-nil error means the v2 pool's block is enabled with
 // invalid bounds; the pool is not managed and the caller decides how loudly
 // to log.
 func (mgr *crusoeManager) resolveNodeGroupSpec(pool *crusoeapi.KubernetesNodePool) (*dynamic.NodeGroupSpec, string, error) {
 	if !isNodePoolV2(pool) {
 		spec, ok := mgr.nodeGroupSpecs[pool.Name]
 		if !ok {
-			klog.V(4).Infof("Skipping v1 nodepool %s (%s): not listed in the autoscaler's node group config",
-				pool.Name, pool.Id)
-			return nil, "", nil
+			return nil, "v1 nodepool not listed in the autoscaler's node group config", nil
 		}
 		return spec, boundsSourceFlags, nil
 	}
 
 	ac := pool.AutoscalingConfig
-	if ac == nil || !ac.Enabled {
-		reason := "no autoscaling_config"
-		if ac != nil {
-			reason = "autoscaling_config is disabled"
-		}
-		klog.V(4).Infof("Skipping v2 nodepool %s (%s): %s", pool.Name, pool.Id, reason)
-		return nil, "", nil
+	if ac == nil {
+		return nil, "v2 nodepool has no autoscaling_config", nil
+	}
+	if !ac.Enabled {
+		return nil, "v2 nodepool's autoscaling_config is disabled", nil
 	}
 
 	spec := &dynamic.NodeGroupSpec{

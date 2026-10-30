@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -404,6 +405,14 @@ func captureLogs(t *testing.T, severity, substr string) func() int {
 	}
 }
 
+// setVerbosity sets klog's -v for the test.
+func setVerbosity(t *testing.T, v string) {
+	var fs flag.FlagSet
+	klog.InitFlags(&fs)
+	require.NoError(t, fs.Set("v", v))
+	t.Cleanup(func() { _ = fs.Set("v", "0") })
+}
+
 func enabledConfig(minSize, maxSize int64) *crusoeapi.KubernetesNodePoolAutoscalingConfig {
 	return &crusoeapi.KubernetesNodePoolAutoscalingConfig{Enabled: true, MinNodeSize: minSize, MaxNodeSize: maxSize}
 }
@@ -704,6 +713,54 @@ func TestManager_RefreshWarnsOncePerInvalidBoundsChange(t *testing.T) {
 	assert.Len(t, mgr.NodeGroups(), 1)
 	require.NoError(t, mgr.Refresh())
 	assert.Equal(t, 3, warnings(), "invalid again after being valid")
+	assert.Empty(t, mgr.NodeGroups())
+}
+
+// A managed pool's bounds line is logged when the pool is first seen or its
+// bounds change, not on every loop.
+func TestManager_RefreshLogsBoundsOncePerChange(t *testing.T) {
+	setVerbosity(t, "4")
+	lines := captureLogs(t, "INFO", "scaling bounds")
+
+	ctx := context.Background()
+	mgr, mocks := testManagerWithMocks()
+	pool := testPool("pool", enabledConfig(1, 4))
+	listPoolsOnce(mocks, pool)
+	listPoolsOnce(mocks, pool)
+	listPoolsOnce(mocks, testPool("pool", enabledConfig(1, 5)))
+	listPoolsOnce(mocks, testPool("pool", disabledConfig(1, 5)))
+	listPoolsOnce(mocks, testPool("pool", enabledConfig(1, 5)))
+	mocks.nodePoolsApi.On("GetNodePool", ctx, testProjectID, pool.Id).Return(pool, httpSuccessResponse(), nil)
+
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 1, lines(), "first sighting")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 1, lines(), "unchanged bounds")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 2, lines(), "changed bounds")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 2, lines(), "disabled")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 3, lines(), "enabled again")
+}
+
+// An unmanaged pool's skip line is logged when the pool is first seen or the
+// reason changes, not on every loop.
+func TestManager_RefreshLogsSkipOncePerChange(t *testing.T) {
+	setVerbosity(t, "4")
+	lines := captureLogs(t, "INFO", "Skipping nodepool")
+
+	mgr, mocks := testManagerWithMocks()
+	listPoolsOnce(mocks, testPool("pool", disabledConfig(1, 4)), testV1Pool("v1-pool", nil))
+	listPoolsOnce(mocks, testPool("pool", disabledConfig(1, 4)), testV1Pool("v1-pool", nil))
+	listPoolsOnce(mocks, testPool("pool", nil), testV1Pool("v1-pool", nil))
+
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 2, lines(), "first sighting")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 2, lines(), "unchanged")
+	require.NoError(t, mgr.Refresh())
+	assert.Equal(t, 3, lines(), "reason changed")
 	assert.Empty(t, mgr.NodeGroups())
 }
 
