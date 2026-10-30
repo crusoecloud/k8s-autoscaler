@@ -394,28 +394,12 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 
 // UpdateNodePool sets the pool's desired node count to targetSize.
 //
-// The node pool PATCH applies every non-null field in its body, and the
-// generated KubernetesNodePoolPatchRequest serializes action, count,
-// ephemeral_storage_for_containerd, node_labels, node_pool_version,
-// node_taints, reservation_id and ssh_public_key without omitempty, so a field
-// left at its Go zero value can reset the pool's setting. The request
-// therefore carries the pool's current value wherever the zero value is not
-// already a no-op. pool must be freshly read (every caller refreshes the node
-// group first), since a stale value would revert a concurrent change.
-//
-//   - ephemeral_storage_for_containerd: echoed; false would switch it off.
-//   - node_labels: the user labels are echoed (see userNodeLabels); a pool
-//     with none sends null, which leaves the labels unchanged.
-//   - ssh_public_key: echoed, so that a server which treats "" as a value
-//     cannot clear the key.
-//   - reservation_id: echoed when set; "" is skipped by the gateway.
-//   - node_taints: deliberately not echoed. A nil slice is sent as null, which
-//     the API documents as "leave taints unchanged". An echo would be a no-op
-//     at best, but the server validates the list before comparing it with the
-//     stored one, so a stored taint that fails today's validation would block
-//     every resize, and an echo would revert a taint edit made since the read.
-//   - node_pool_version: cannot be echoed (the pool reports only its image ID)
-//     and is sent as "", which the gateway skips.
+// The PATCH applies every non-null field and several fields lack omitempty, so
+// the request echoes the pool's current value wherever a zero value would
+// reset a setting: ephemeral_storage_for_containerd, ssh_public_key, the user
+// node labels and reservation_id. node_taints is left null (unchanged), since
+// an echo could fail validation or revert a concurrent edit. pool must be
+// freshly read.
 func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, pool *crusoeapi.KubernetesNodePool, targetSize int64) (*crusoeapi.Operation, error) {
 	req := crusoeapi.KubernetesNodePoolPatchRequest{
 		Action:                        "UPDATE",
