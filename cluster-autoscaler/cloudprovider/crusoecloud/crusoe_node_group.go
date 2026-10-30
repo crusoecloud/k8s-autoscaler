@@ -104,14 +104,6 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 		return nil
 	}
 
-	// An unhealthy pool has stopped creating the nodes it was asked for, and
-	// its target size counts only its active nodes, so CA sees no upcoming
-	// nodes and asks again on the next loop. The resize is still sent, as it
-	// is what asks the pool to try again, but the error makes CA back off
-	// before the next attempt instead of resending it every loop.
-	wasUnhealthy := ng.pool.State == stateUnhealthy
-	activeNodes := ng.targetSize // an unhealthy pool's target size is its active node count
-
 	op, err := ng.manager.UpdateNodePool(ctx, ng.pool, targetSize)
 	if err != nil {
 		klog.Errorf("IncreaseSize,PoolID=%s, failed trying to set target nodepool size to %d: %v", ng.pool.Id, targetSize, err)
@@ -126,10 +118,6 @@ func (ng *crusoeNodeGroup) IncreaseSize(delta int) error {
 	// target size has already updated so waiting for vms to be created can happen asynchronously
 	go ng.trackIncreaseSizeAsync(ng.pool.Id, op)
 
-	if wasUnhealthy {
-		return fmt.Errorf("node pool %s is unhealthy: requested %d nodes, but it has only %d active nodes",
-			ng.pool.Id, targetSize, activeNodes)
-	}
 	return nil
 }
 
