@@ -216,6 +216,84 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 	mocks.vmApi.AssertExpectations(t)
 }
 
+// An unhealthy pool still gets the resize, which asks it to try again, but
+// IncreaseSize fails so CA backs off instead of resending it every loop.
+func TestNodeGroup_IncreaseSizeUnhealthyPool(t *testing.T) {
+	ctx := context.Background()
+	ng, mocks := testNodeGroupWithMocks(1)
+
+	// A previous scale-up to 3 that could not create its nodes.
+	unhealthy := crusoeapi.KubernetesNodePool{
+		Id:          testNodePoolID,
+		ProjectId:   testProjectID,
+		ClusterId:   testClusterID,
+		Count:       3,
+		State:       stateUnhealthy,
+		InstanceIds: []string{"nodeId1"},
+	}
+	mocks.nodePoolsApi.
+		On("GetNodePool", ctx, testProjectID, testNodePoolID).
+		Return(unhealthy, httpSuccessResponse(), nil).
+		Twice()
+	mocks.vmApi.
+		On("ListInstances", ctx, testProjectID, &crusoeapi.VMsApiListInstancesOpts{
+			Ids: optional.NewString("nodeId1"),
+		}).
+		Return(
+			crusoeapi.ListInstancesResponseV1Alpha5{
+				Items: []crusoeapi.InstanceV1Alpha5{{Id: "nodeId1", Name: "node1", ProjectId: testProjectID}},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Twice()
+	mocks.nodePoolsApi.
+		On("UpdateNodePool",
+			ctx,
+			crusoeapi.KubernetesNodePoolPatchRequest{Action: "UPDATE", Count: 3},
+			testProjectID,
+			testNodePoolID,
+		).
+		Return(
+			crusoeapi.AsyncOperationResponse{
+				Operation: &crusoeapi.Operation{OperationId: "opId", State: string(opInProgress)},
+			},
+			httpSuccessResponse(),
+			nil,
+		).
+		Once()
+
+	done := make(chan struct{})
+	mocks.nodePoolOpsApi.
+		On("GetKubernetesNodePoolsOperation", mock.Anything, testProjectID, "opId").
+		Return(
+			crusoeapi.Operation{OperationId: "opId", State: string(opFailed)},
+			httpSuccessResponse(),
+			nil,
+		).
+		Run(func(args mock.Arguments) {
+			close(done)
+		}).
+		Once()
+
+	err := ng.IncreaseSize(2)
+	assert.ErrorContains(t, err, "node pool "+testNodePoolID+" is unhealthy: requested 3 nodes, but it has only 1 active nodes")
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for GetKubernetesNodePoolsOperation to be called")
+	}
+
+	size, sizeErr := ng.TargetSize()
+	assert.NoError(t, sizeErr)
+	assert.Equal(t, 1, size, "an unhealthy pool's target size is its active node count")
+
+	mocks.nodePoolsApi.AssertExpectations(t)
+	mocks.nodePoolOpsApi.AssertExpectations(t)
+	mocks.vmApi.AssertExpectations(t)
+}
+
 func TestNodeGroup_IncreaseNegativeDelta(t *testing.T) {
 	nodes := 3
 	delta := -2
