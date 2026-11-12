@@ -1,0 +1,16 @@
+[settings]
+experimental = true
+lockfile = true
+idiomatic_version_file_enable_tools = ["go"]
+
+[task_config]
+includes = ["git::https://git@gitlab.com/crusoeenergy/tools.git//tasks/go.toml?ref=master"]
+
+[env]
+# This upstream fork commits its dependency tree. Keep it separate from GOPATH.
+GOFLAGS = { default = "-mod=vendor" }
+GIT_DEFAULT_BRANCH = "crusoe-cluster-autoscaler-release-1.30.3"
+
+[tasks."test:provider"]
+description = "Run the Crusoe provider tests selected by the existing GitLab pipeline"
+run = "go test ./cloudprovider/crusoecloud/..."

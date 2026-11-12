@@ -31,3 +31,13 @@ Session.vim
 
 # Binary files
 bin/
+
+# mise/CI state; keep the upstream committed vendor trees intact.
+.mise-data/
+.cache/
+**/coverage.out
+**/coverage.out.tmp
+**/coverage.html
+**/coverage.xml
+**/junit.xml
+**/gl-code-quality-report.json

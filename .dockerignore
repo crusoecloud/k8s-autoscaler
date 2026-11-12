@@ -1,0 +1,5 @@
+**
+!Dockerfile.cluster-autoscaler-amd64
+!bin/
+!bin/linux-amd64/
+!bin/linux-amd64/cluster-autoscaler

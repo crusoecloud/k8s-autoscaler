@@ -1,0 +1,10 @@
+# Only the existing GitLab Cluster Autoscaler module participates in this migration.
+monorepo_root = true
+
+[monorepo]
+config_roots = ["cluster-autoscaler"]
+
+[settings]
+experimental = true
+lockfile = true
+idiomatic_version_file_enable_tools = ["go"]

@@ -45,3 +45,30 @@ Please refer to Kubernetes [Github workflow guide] for more details.
 [GoDoc]: https://godoc.org/k8s.io/autoscaler
 [GoDoc Widget]: https://godoc.org/k8s.io/autoscaler?status.svg
 [Github workflow guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/github-workflow.md
+
+## Crusoe GitLab tooling
+
+The Crusoe GitLab pipeline uses mise and the shared tools components for the
+`cluster-autoscaler` module. Other modules and upstream GitHub release/chart
+workflows are unchanged. Go is selected from `cluster-autoscaler/go.mod`,
+including its `toolchain` directive; the tracked vendor tree remains in use.
+
+```sh
+cd cluster-autoscaler
+mise trust
+mise install
+mise run test:provider
+CGO_ENABLED=0 mise run go:build -- -ldflags=-s .
+```
+
+From the repository root, module tasks are also available as
+`mise run //cluster-autoscaler:test:provider`. The existing upstream Make targets,
+including public Docker-builder and release workflows, keep their supported
+variables and remain available. Use the existing `make ci` for the upstream
+short race suite and its build/clean prerequisites.
+
+GitLab publishes the Linux amd64 runtime at the existing
+`$CI_REGISTRY_IMAGE/cluster-autoscaler-amd64:$CI_COMMIT_REF_NAME` destination using
+the shared rootless Docker builder and shared Go build artifacts. The original
+module Dockerfiles remain available to upstream Make callers. GitLab does not
+create release tags or publish the upstream Helm chart.

@@ -1,101 +1,130 @@
 include:
-  - project: 'crusoeenergy/tools'
-    file: '/templates/go.gitlab-ci.yml'
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/wiz-deps@master
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@master
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@master
+    inputs:
+      go_mod_dir: "cluster-autoscaler/"
+      # This upstream fork's releases and tags are owned by GitHub Actions.
+      tag_version: "false"
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/docker@master
 
 variables:
-  CI_IMAGE: "registry.gitlab.com/crusoeenergy/tools/go-ci-1.22"
-  SUBPROJECT: "cluster-autoscaler"
-  SUBPROJECT_PATH: "cluster-autoscaler/"
-  SUBPROJECT_REL_PATH: "./cluster-autoscaler"
-  REGISTRY: "registry.gitlab.com/crusoeenergy/island/external/k8s-autoscaler"
-  # we only need amd64 to run autoscaler on C1A VMs
-  ALL_ARCH: "amd64"
+  PLATFORMS: "linux/amd64"
 
-  # Docker config
-  DOCKER_VERSION: "20.10.24-dind"
-  DOCKER_CLI_PACKAGE: "docker-ce-cli"
-  DOCKER_REPO_URL: "https://download.docker.com/linux/debian"
-  DOCKER_GPG_KEY: "/usr/share/keyrings/docker-archive-keyring.gpg"
-  DOCKER_APT_SOURCE: "/etc/apt/sources.list.d/docker.list"
+# The repository root has no go.mod. Install and activate tools at the one
+# participating module, using its go.mod/toolchain directive and tool lock.
+.mise:
+  cache:
+    - key:
+        files:
+          - cluster-autoscaler/mise.lock
+          - cluster-autoscaler/mise.toml
+      paths: ["${MISE_DATA_DIR}"]
+      policy: "${MISE_CACHE_POLICY}"
 
-default:
-  # Use GCP runner to unblock builds if Crusoe’s runner is unavailable.
-  tags:
-    - gitlab-runner-gcp
-
-stages:
-  - test
-  - build
-
-test_and_lint:
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_BRANCH !~ /^crusoe-cluster-autoscaler-/'
-      changes: !reference [.code-changes, changes]
-    - if: '$CI_MERGE_REQUEST_ID'
-      changes: !reference [.code-changes, changes]
-    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^crusoe-cluster-autoscaler-release-[0-9]+\.[0-9]+\.[0-9]+.+/'
-  script:
-    - set -euo pipefail
-    - cd "$SUBPROJECT"
-    - go test ./cloudprovider/crusoecloud/...
-
-# Remove the tag_semver and pages jobs from merges into main.
-# The tag_semver job will be run using a GitHub action instead
-# and new versions will be pushed then.
-tag_semver:
-  rules:
-    - when: never
-
-code_intelligence:
-  rules:
-    - when: never
-
-pages:
-  rules:
-    - when: never
-
-# Build and push Docker images to the Gitlab registry for internal testing.
-build_and_push_image:
-  stage: build
-  services:
-    # Docker-in-Docker to support building images in CI.
-    - "docker:${DOCKER_VERSION}"
-  variables:
-    DOCKER_TLS_CERTDIR: ""
+pre_mise:
   before_script:
-    - |
-      set -eux
-      chmod +x "$SUBPROJECT_PATH/push_image.sh"
+    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
+    - !reference [.mise, before_script]
 
-      # Install Docker CLI for building/pushing images
-      apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg
-      curl -fsSL "$DOCKER_REPO_URL/gpg" | gpg --dearmor -o "$DOCKER_GPG_KEY"
-      echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO_URL} bullseye stable" > "$DOCKER_APT_SOURCE"
-      apt-get update && apt-get install -y "$DOCKER_CLI_PACKAGE"
+.go_mise:
+  variables:
+    GOFLAGS: "-mod=vendor"
+    GOPATH: "${CI_PROJECT_DIR}/.cache/gopath"
+    XDG_CACHE_HOME: "${CI_PROJECT_DIR}/.cache"
+  before_script:
+    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
+    - !reference [.mise, before_script]
+    - go version
+    - go env
 
-      # Authenticate to the GitLab container registry
-      docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" registry.gitlab.com
-  script:
-    - |
-      set -eux
-      cd "$SUBPROJECT_PATH"
-
-      # Build for amd64 architecture
-      make build-arch-amd64
-
-      # Set registry info and target tag
-      export REGISTRY="$REGISTRY"
-      export TAG="$CI_COMMIT_REF_NAME"
-      export ALL_ARCH="$ALL_ARCH"
-
-      # Build, then push manifest
-      make make-image-arch-amd64
-      docker push "$REGISTRY/cluster-autoscaler-amd64:$TAG"
+.image_publish_rules:
   rules:
-    # Always run this job if on default branch or in a merge request.
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      when: always
-    - if: '$CI_MERGE_REQUEST_ID'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_MERGE_REQUEST_ID'
       when: always
 
+# Vendored dependencies already supply this fork's builds and provider tests.
+# Do not replace them with a full upstream-module download/tidy operation.
+cluster-autoscaler/pre_go_deps:
+  parallel:
+    matrix:
+      - GOARCH: "amd64"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - when: on_success
+  script:
+    - test -f vendor/modules.txt
+    - go version
+
+cluster-autoscaler/versions:
+  rules: !reference [.image_publish_rules, rules]
+
+cluster-autoscaler/go_build:
+  variables:
+    CGO_ENABLED: "0"
+  parallel:
+    matrix:
+      - GOOS: ["linux"]
+        GOARCH: ["amd64"]
+  rules: !reference [.image_publish_rules, rules]
+  script:
+    - export GO_BUILD_DIR="${CI_PROJECT_DIR}/bin/${GOOS}-${GOARCH}"
+    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
+    - mise run go:build -- -ldflags=-s .
+
+# The baseline GitLab check runs only this provider, without coverage/race.
+# Preserve that boundary instead of starting upstream suites for other clouds.
+cluster-autoscaler/go_test:
+  coverage: null
+  artifacts: null
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH =~ /^crusoe-cluster-autoscaler-/ && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && !$CI_MERGE_REQUEST_ID'
+      when: never
+    - !reference [.cluster-autoscaler/go_rules, rules]
+  script:
+    - mise run test:provider
+
+# These were not checks in the existing GitLab pipeline. Upstream GitHub
+# workflows and Make targets remain intact; this migration does not widen them.
+cluster-autoscaler/go_test_race:
+  rules: [{ when: never }]
+cluster-autoscaler/go_generate:
+  rules: [{ when: never }]
+cluster-autoscaler/go_mod_tidy:
+  rules: [{ when: never }]
+cluster-autoscaler/golangci_lint:
+  rules: [{ when: never }]
+cluster-autoscaler/go_publish_docs:
+  rules: [{ when: never }]
+publish_pages:
+  rules: [{ when: never }]
+
+# This fork has no selected artifacts manifest or module chart publisher.
+# Keep artifact discovery out of its large upstream/vendor tree.
+cluster-autoscaler/pre_publish_artifacts:
+  rules: [{ when: never }]
+cluster-autoscaler/publish_artifacts:
+  rules: [{ when: never }]
+
+# Reuse the shared builder with the existing repository/raw-ref destination.
+# The root Dockerfile suffix deliberately preserves /cluster-autoscaler-amd64.
+build_and_push_image:
+  extends: .publish_docker_image
+  needs:
+    - job: cluster-autoscaler/versions
+    - job: "cluster-autoscaler/go_build: [linux, amd64]"
+  variables:
+    DOCKERFILE: Dockerfile.cluster-autoscaler-amd64
+    DOCKER_PLATFORMS: "linux/amd64"
+  # The Go component prefixes its release metadata with the module path.
+  # Docker tags need the unprefixed value; GitHub still owns Git release tags.
+  before_script:
+    - export RELEASE_VERSION="${TRIMMED_RELEASE_VERSION:?missing shared version artifact}"
+  after_script:
+    - export RELEASE_VERSION="${TRIMMED_RELEASE_VERSION}"
+    - !reference [.publish_docker_image_base, after_script]
+  rules: !reference [.image_publish_rules, rules]
