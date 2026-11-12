@@ -62,8 +62,6 @@ cluster-autoscaler/versions:
   rules: !reference [.image_publish_rules, rules]
 
 cluster-autoscaler/go_build:
-  variables:
-    CGO_ENABLED: "0"
   parallel:
     matrix:
       - GOOS: ["linux"]

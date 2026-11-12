@@ -52,13 +52,15 @@ The Crusoe GitLab pipeline uses mise and the shared tools components for the
 `cluster-autoscaler` module. Other modules and upstream GitHub release/chart
 workflows are unchanged. Go is selected from `cluster-autoscaler/go.mod`,
 including its `toolchain` directive; the tracked vendor tree remains in use.
+Both shared build tasks disable CGO in the module configuration; upstream host
+race tests retain their CGO support.
 
 ```sh
 cd cluster-autoscaler
 mise trust
 mise install
 mise run test:provider
-CGO_ENABLED=0 mise run go:build -- -ldflags=-s .
+mise run go:build -- -ldflags=-s .
 ```
 
 From the repository root, module tasks are also available as
