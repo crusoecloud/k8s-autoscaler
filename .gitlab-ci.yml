@@ -9,8 +9,8 @@ include:
 variables:
   PLATFORMS: "linux/amd64"
 
-# The repository root has no go.mod. Install and activate tools at the one
-# participating module, using its go.mod/toolchain directive and tool lock.
+# Shared setup starts at the repository root, which has no go.mod or mise config.
+# Install and activate tools in the module and use its lock/config cache key.
 .mise:
   cache:
     - key:
@@ -27,6 +27,7 @@ pre_mise:
 
 .go_mise:
   variables:
+    # Shared jobs default to -mod=readonly; this fork builds from committed vendor.
     GOFLAGS: "-mod=vendor"
     GOPATH: "${CI_PROJECT_DIR}/.cache/gopath"
     XDG_CACHE_HOME: "${CI_PROJECT_DIR}/.cache"
@@ -55,6 +56,7 @@ cluster-autoscaler/versions:
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
 cluster-autoscaler/go_build:
+  # Custom rules replace the shared PLATFORMS filters, so restrict the matrix too.
   parallel:
     matrix:
       - GOOS: ["linux"]
@@ -67,44 +69,42 @@ cluster-autoscaler/pre_publish_artifacts:
 cluster-autoscaler/publish_artifacts:
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
-# Vendored dependencies already supply this fork's builds and provider tests.
-# Do not replace them with a full upstream-module download/tidy operation.
+# Builds and provider tests consume committed vendor instead of downloaded modules.
+# Custom rules also replace platform filters; keep the amd64 setup/dependency pair.
 cluster-autoscaler/pre_go_deps:
   parallel:
     matrix:
       - GOARCH: "amd64"
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-    - when: on_success
+  rules: !reference [.cluster_autoscaler_artifact_rules, rules]
   script:
     - test -f vendor/modules.txt
-    - go version
 
-# The baseline GitLab check runs only this provider, without coverage/race.
-# Preserve that boundary instead of starting upstream suites for other clouds.
+# Preserve the Crusoe-provider-only tests and release-branch policy. Shared tests
+# cover the full upstream module and produce coverage reports.
 cluster-autoscaler/go_test:
   coverage: null
   artifacts: null
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
     - if: '$CI_COMMIT_BRANCH =~ /^crusoe-cluster-autoscaler-/ && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && !$CI_MERGE_REQUEST_ID'
       when: never
     - !reference [.cluster-autoscaler/go_rules, rules]
   script:
     - mise run test:provider
 
-# These were not checks in the existing GitLab pipeline. Upstream GitHub
-# workflows and Make targets remain intact; this migration does not widen them.
+# Adding whole-module race/lint checks is a separate change to GitLab CI scope.
 cluster-autoscaler/go_test_race:
   rules: [{ when: never }]
+# Full-module generation invokes upstream AWS/Azure generators with extra
+# environment/tool requirements; it needs a separate reproducible setup.
 cluster-autoscaler/go_generate:
   rules: [{ when: never }]
+# Dependency updates use hack/update-deps.sh (tidy then vendor). A standalone
+# tidy check can be evaluated separately from this tooling migration.
 cluster-autoscaler/go_mod_tidy:
   rules: [{ when: never }]
 cluster-autoscaler/golangci_lint:
   rules: [{ when: never }]
+# Keep documentation publication outside this migration; Pages was disabled.
 cluster-autoscaler/go_publish_docs:
   rules: [{ when: never }]
 publish_pages:
