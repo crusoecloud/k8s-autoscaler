@@ -1,40 +1,23 @@
-include:
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@master
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@master
-    inputs:
-      go_mod_dir: "cluster-autoscaler/"
-      # This upstream fork's releases and tags are owned by GitHub Actions.
-      tag_version: "false"
-
 variables:
+  MODULE_DIR: &module_dir "cluster-autoscaler/"
   PLATFORMS: "linux/amd64"
 
-# The repository root has no go.mod. Install and activate tools at the one
-# participating module, using its go.mod/toolchain directive and tool lock.
-.mise:
-  cache:
-    - key:
-        files:
-          - cluster-autoscaler/mise.lock
-          - cluster-autoscaler/mise.toml
-      paths: ["${MISE_DATA_DIR}"]
-      policy: "${MISE_CACHE_POLICY}"
-
-pre_mise:
-  before_script:
-    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
-    - !reference [.mise, before_script]
+include:
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@master
+    inputs:
+      dir: *module_dir
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@master
+    inputs:
+      go_mod_dir: *module_dir
+      job_prefix: ""
+      # This upstream fork's releases and tags are owned by GitHub Actions.
+      tag_version: "false"
 
 .go_mise:
   variables:
     GOFLAGS: "-mod=vendor"
     GOPATH: "${CI_PROJECT_DIR}/.cache/gopath"
     XDG_CACHE_HOME: "${CI_PROJECT_DIR}/.cache"
-  before_script:
-    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
-    - !reference [.mise, before_script]
-    - go version
-    - go env
 
 # The runtime Dockerfile is at repository root, outside go_mod_dir. Include it
 # in the producer and publisher rules so a Dockerfile-only change rebuilds the
@@ -44,32 +27,32 @@ pre_mise:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
     - changes:
-        - cluster-autoscaler/**/*
+        - $MODULE_DIR**/*
         - Dockerfile.cluster-autoscaler-amd64
         - .gitlab-ci.yml
         - .golangci.yml
         - mise.toml
         - go.work
 
-cluster-autoscaler/versions:
+versions:
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
-cluster-autoscaler/go_build:
+go_build:
   parallel:
     matrix:
       - GOOS: ["linux"]
         GOARCH: ["amd64"]
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
-cluster-autoscaler/pre_publish_artifacts:
+pre_publish_artifacts:
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
-cluster-autoscaler/publish_artifacts:
+publish_artifacts:
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
 # Vendored dependencies already supply this fork's builds and provider tests.
 # Do not replace them with a full upstream-module download/tidy operation.
-cluster-autoscaler/pre_go_deps:
+pre_go_deps:
   parallel:
     matrix:
       - GOARCH: "amd64"
@@ -83,7 +66,7 @@ cluster-autoscaler/pre_go_deps:
 
 # The baseline GitLab check runs only this provider, without coverage/race.
 # Preserve that boundary instead of starting upstream suites for other clouds.
-cluster-autoscaler/go_test:
+go_test:
   coverage: null
   artifacts: null
   rules:
@@ -91,21 +74,21 @@ cluster-autoscaler/go_test:
       when: never
     - if: '$CI_COMMIT_BRANCH =~ /^crusoe-cluster-autoscaler-/ && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && !$CI_MERGE_REQUEST_ID'
       when: never
-    - !reference [.cluster-autoscaler/go_rules, rules]
+    - !reference [.go_rules, rules]
   script:
     - mise run test:provider
 
 # These were not checks in the existing GitLab pipeline. Upstream GitHub
 # workflows and Make targets remain intact; this migration does not widen them.
-cluster-autoscaler/go_test_race:
+go_test_race:
   rules: [{ when: never }]
-cluster-autoscaler/go_generate:
+go_generate:
   rules: [{ when: never }]
-cluster-autoscaler/go_mod_tidy:
+go_mod_tidy:
   rules: [{ when: never }]
-cluster-autoscaler/golangci_lint:
+golangci_lint:
   rules: [{ when: never }]
-cluster-autoscaler/go_publish_docs:
+go_publish_docs:
   rules: [{ when: never }]
 publish_pages:
   rules: [{ when: never }]
