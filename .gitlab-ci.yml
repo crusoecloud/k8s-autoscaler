@@ -1,5 +1,6 @@
 include:
   - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@master
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/wiz-deps@master
   - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@master
     inputs:
       go_mod_dir: "cluster-autoscaler/"
