@@ -1,0 +1,8 @@
+version: 2
+
+images:
+  cluster-autoscaler-amd64:
+    path: .
+    file: Dockerfile.cluster-autoscaler-amd64
+    # The module's root main package produces the cluster-autoscaler binary.
+    go: [k8s.io/autoscaler/cluster-autoscaler]

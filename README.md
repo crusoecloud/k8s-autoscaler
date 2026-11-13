@@ -52,15 +52,13 @@ The Crusoe GitLab pipeline uses mise and the shared tools components for the
 `cluster-autoscaler` module. Other modules and upstream GitHub release/chart
 workflows are unchanged. Go is selected from `cluster-autoscaler/go.mod`,
 including its `toolchain` directive; the tracked vendor tree remains in use.
-Both shared build tasks disable CGO in the module configuration; upstream host
-race tests retain their CGO support.
 
 ```sh
 cd cluster-autoscaler
 mise trust
 mise install
 mise run test:provider
-mise run go:build -- -ldflags=-s .
+mise run go:build
 ```
 
 From the repository root, module tasks are also available as
@@ -69,8 +67,10 @@ including public Docker-builder and release workflows, keep their supported
 variables and remain available. Use the existing `make ci` for the upstream
 short race suite and its build/clean prerequisites.
 
-GitLab publishes the Linux amd64 runtime at the existing
-`$CI_REGISTRY_IMAGE/cluster-autoscaler-amd64:$CI_COMMIT_REF_NAME` destination using
-the shared rootless Docker builder and shared Go build artifacts. The original
-module Dockerfiles remain available to upstream Make callers. GitLab does not
-create release tags or publish the upstream Helm chart.
+GitLab uses the shared artifact publisher for the Linux amd64 runtime at
+`$CI_REGISTRY_IMAGE/cluster-autoscaler-amd64`. Images use the shared commit,
+branch-slug, and version tags; the default branch also publishes `latest`.
+The project mise configuration disables CGO for both shared build paths while
+leaving host race tests available. The original module Dockerfiles remain
+available to upstream Make callers. GitLab does not create release tags or publish
+the upstream Helm chart; the selected module has no chart.

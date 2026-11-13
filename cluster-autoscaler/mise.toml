@@ -13,6 +13,7 @@ GIT_DEFAULT_BRANCH = "crusoe-cluster-autoscaler-release-1.30.3"
 
 [vars]
 build_cgo_enabled = "0"
+build_flags = "-ldflags=-s"
 
 # Keep runtime binaries static in both shared build paths. Limit this to builds
 # so the upstream Make race-test interface can still use CGO on the host.

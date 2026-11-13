@@ -5,7 +5,6 @@ include:
       go_mod_dir: "cluster-autoscaler/"
       # This upstream fork's releases and tags are owned by GitHub Actions.
       tag_version: "false"
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/docker@master
 
 variables:
   PLATFORMS: "linux/amd64"
@@ -37,12 +36,36 @@ pre_mise:
     - go version
     - go env
 
-.image_publish_rules:
+# The runtime Dockerfile is at repository root, outside go_mod_dir. Include it
+# in the producer and publisher rules so a Dockerfile-only change rebuilds the
+# image with the required version and binary artifacts.
+.cluster_autoscaler_artifact_rules:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_MERGE_REQUEST_ID'
-      when: always
+    - changes:
+        - cluster-autoscaler/**/*
+        - Dockerfile.cluster-autoscaler-amd64
+        - .gitlab-ci.yml
+        - .golangci.yml
+        - mise.toml
+        - go.work
+
+cluster-autoscaler/versions:
+  rules: !reference [.cluster_autoscaler_artifact_rules, rules]
+
+cluster-autoscaler/go_build:
+  parallel:
+    matrix:
+      - GOOS: ["linux"]
+        GOARCH: ["amd64"]
+  rules: !reference [.cluster_autoscaler_artifact_rules, rules]
+
+cluster-autoscaler/pre_publish_artifacts:
+  rules: !reference [.cluster_autoscaler_artifact_rules, rules]
+
+cluster-autoscaler/publish_artifacts:
+  rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
 # Vendored dependencies already supply this fork's builds and provider tests.
 # Do not replace them with a full upstream-module download/tidy operation.
@@ -57,20 +80,6 @@ cluster-autoscaler/pre_go_deps:
   script:
     - test -f vendor/modules.txt
     - go version
-
-cluster-autoscaler/versions:
-  rules: !reference [.image_publish_rules, rules]
-
-cluster-autoscaler/go_build:
-  parallel:
-    matrix:
-      - GOOS: ["linux"]
-        GOARCH: ["amd64"]
-  rules: !reference [.image_publish_rules, rules]
-  script:
-    - export GO_BUILD_DIR="${CI_PROJECT_DIR}/bin/${GOOS}-${GOARCH}"
-    - cd "${CI_PROJECT_DIR}/cluster-autoscaler"
-    - mise run go:build -- -ldflags=-s .
 
 # The baseline GitLab check runs only this provider, without coverage/race.
 # Preserve that boundary instead of starting upstream suites for other clouds.
@@ -100,29 +109,3 @@ cluster-autoscaler/go_publish_docs:
   rules: [{ when: never }]
 publish_pages:
   rules: [{ when: never }]
-
-# This fork has no selected artifacts manifest or module chart publisher.
-# Keep artifact discovery out of its large upstream/vendor tree.
-cluster-autoscaler/pre_publish_artifacts:
-  rules: [{ when: never }]
-cluster-autoscaler/publish_artifacts:
-  rules: [{ when: never }]
-
-# Reuse the shared builder with the existing repository/raw-ref destination.
-# The root Dockerfile suffix deliberately preserves /cluster-autoscaler-amd64.
-build_and_push_image:
-  extends: .publish_docker_image
-  needs:
-    - job: cluster-autoscaler/versions
-    - job: "cluster-autoscaler/go_build: [linux, amd64]"
-  variables:
-    DOCKERFILE: Dockerfile.cluster-autoscaler-amd64
-    DOCKER_PLATFORMS: "linux/amd64"
-  # The Go component prefixes its release metadata with the module path.
-  # Docker tags need the unprefixed value; GitHub still owns Git release tags.
-  before_script:
-    - export RELEASE_VERSION="${TRIMMED_RELEASE_VERSION:?missing shared version artifact}"
-  after_script:
-    - export RELEASE_VERSION="${TRIMMED_RELEASE_VERSION}"
-    - !reference [.publish_docker_image_base, after_script]
-  rules: !reference [.image_publish_rules, rules]
