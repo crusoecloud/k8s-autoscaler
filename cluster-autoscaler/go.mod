@@ -17,7 +17,7 @@ require (
 	github.com/antihax/optional v1.0.0
 	github.com/aws/aws-sdk-go v1.44.241
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/crusoecloud/client-go v1.0.20
+	github.com/crusoecloud/client-go v1.0.24
 	github.com/digitalocean/godo v1.27.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang/mock v1.6.0
@@ -34,6 +34,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/vburenin/ifacemaker v1.2.1
 	go.uber.org/mock v0.4.0
+	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.36.0
 	golang.org/x/net v0.38.0
 	golang.org/x/oauth2 v0.27.0
@@ -189,7 +190,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.5.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

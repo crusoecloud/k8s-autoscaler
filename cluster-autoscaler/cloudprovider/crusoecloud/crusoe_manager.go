@@ -62,6 +62,10 @@ const (
 	// nodePoolGenerationV2 is the node_pool_generation the API serves for v2
 	// nodepools. Any other value, including an unset one, is a v1 nodepool.
 	nodePoolGenerationV2 = 2
+
+	// The default boot disk size, for node pools the API reports no
+	// ephemeral-storage for.
+	defaultEphemeralStorage = "128Gi"
 )
 
 type crusoeCloudConfig struct {
@@ -412,15 +416,15 @@ func (mgr *crusoeManager) GetNodePool(ctx context.Context, poolID string) (*crus
 func (mgr *crusoeManager) UpdateNodePool(ctx context.Context, pool *crusoeapi.KubernetesNodePool, targetSize int64) (*crusoeapi.Operation, error) {
 	req := crusoeapi.KubernetesNodePoolPatchRequest{
 		Action:                        "UPDATE",
-		Count:                         targetSize,
-		EphemeralStorageForContainerd: pool.EphemeralStorageForContainerd,
-		SshPublicKey:                  pool.SshPublicKey,
+		Count:                         &targetSize,
+		EphemeralStorageForContainerd: &pool.EphemeralStorageForContainerd,
+		SshPublicKey:                  &pool.SshPublicKey,
 	}
 	if labels := userNodeLabels(pool.NodeLabels); len(labels) > 0 {
 		req.NodeLabels = labels
 	}
 	if pool.ReservationId != "" {
-		req.ReservationId = pool.ReservationId
+		req.ReservationId = &pool.ReservationId
 	}
 
 	resp, httpResp, err := mgr.nodePoolsApi.UpdateNodePool(ctx, req, mgr.projectID, pool.Id)
@@ -535,13 +539,45 @@ func (m *crusoeManager) buildTemplateNodeFromNodePool(ctx context.Context, nodeP
 		}
 	}
 
+	node.Status.Capacity[apiv1.ResourceEphemeralStorage] = nodeEphemeralStorage(nodePool)
+
 	node.Status.Allocatable = node.Status.Capacity
+
+	node.Spec.Taints = buildTaints(nodePool.NodeTaints)
 
 	node.Labels = cloudprovider.JoinStringMaps(node.Labels, m.buildGenericLabels(instanceTypeDetail, nodePool.NodeLabels))
 
 	node.Status.Conditions = cloudprovider.BuildReadyConditions()
 
 	return &node, nil
+}
+
+// nodeEphemeralStorage returns the ephemeral-storage of a new node in the pool.
+// Without it a pod requesting ephemeral-storage never fits the template, so an
+// empty pool never scales up.
+func nodeEphemeralStorage(nodePool *crusoeapi.KubernetesNodePool) resource.Quantity {
+	if size := nodePool.NodeEphemeralStorage; size != "" {
+		quantity, err := resource.ParseQuantity(size)
+		if err == nil {
+			return quantity
+		}
+		klog.V(2).Infof("Ignoring invalid ephemeral storage %q for node pool %s", size, nodePool.Id)
+	}
+
+	return resource.MustParse(defaultEphemeralStorage)
+}
+
+func buildTaints(nodeTaints []crusoeapi.KubernetesNodeTaint) []apiv1.Taint {
+	taints := make([]apiv1.Taint, 0, len(nodeTaints))
+	for _, taint := range nodeTaints {
+		taints = append(taints, apiv1.Taint{
+			Key:    taint.Key,
+			Value:  taint.Value,
+			Effect: apiv1.TaintEffect(taint.Effect),
+		})
+	}
+
+	return taints
 }
 
 func (mgr *crusoeManager) ListVMInstances(ctx context.Context, instanceIds []string) ([]crusoeapi.InstanceV1Alpha5, error) {

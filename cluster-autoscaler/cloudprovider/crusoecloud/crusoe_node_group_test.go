@@ -28,6 +28,7 @@ import (
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
+	"k8s.io/utils/ptr"
 )
 
 func testNodeGroupWithMocks(count int) (*crusoeNodeGroup, *crusoeMocks) {
@@ -159,10 +160,10 @@ func TestNodeGroup_IncreaseSize(t *testing.T) {
 			ctx,
 			crusoeapi.KubernetesNodePoolPatchRequest{
 				Action:                        "UPDATE",
-				Count:                         newNumNodes,
-				EphemeralStorageForContainerd: true,
+				Count:                         ptr.To[int64](newNumNodes),
+				EphemeralStorageForContainerd: ptr.To(true),
 				NodeLabels:                    map[string]string{"team": "ml"},
-				SshPublicKey:                  "ssh-ed25519 AAAAfresh user@host",
+				SshPublicKey:                  ptr.To("ssh-ed25519 AAAAfresh user@host"),
 			},
 			testProjectID,
 			testNodePoolID,
@@ -294,8 +295,10 @@ func TestNodeGroup_DecreaseTargetSize(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Action: "UPDATE",
-			Count:  newSize,
+			Action:                        "UPDATE",
+			Count:                         ptr.To[int64](newSize),
+			EphemeralStorageForContainerd: ptr.To(false),
+			SshPublicKey:                  ptr.To(""),
 		},
 		testProjectID,
 		testNodePoolID,
@@ -410,8 +413,10 @@ func TestNodeGroup_DeleteNodes(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Action: "UPDATE",
-			Count:  newSize,
+			Action:                        "UPDATE",
+			Count:                         ptr.To[int64](newSize),
+			EphemeralStorageForContainerd: ptr.To(false),
+			SshPublicKey:                  ptr.To(""),
 		},
 		testProjectID,
 		testNodePoolID,
@@ -505,8 +510,10 @@ func TestNodeGroup_DeleteNodesNonExistent_Fail(t *testing.T) {
 	mocks.nodePoolsApi.On("UpdateNodePool",
 		ctx,
 		crusoeapi.KubernetesNodePoolPatchRequest{
-			Action: "UPDATE",
-			Count:  newSize,
+			Action:                        "UPDATE",
+			Count:                         ptr.To[int64](newSize),
+			EphemeralStorageForContainerd: ptr.To(false),
+			SshPublicKey:                  ptr.To(""),
 		},
 		testProjectID,
 		testNodePoolID,
