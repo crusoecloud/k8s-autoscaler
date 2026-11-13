@@ -3,10 +3,10 @@ variables:
   PLATFORMS: "linux/amd64"
 
 include:
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@shiqi-ci-module-job-prefix
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/mise@shiqi-helm-job-prefix
     inputs:
       dir: *module_dir
-  - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@shiqi-ci-module-job-prefix
+  - component: $CI_SERVER_FQDN/crusoeenergy/tools/go@shiqi-helm-job-prefix
     inputs:
       go_mod_dir: *module_dir
       job_prefix: ""
@@ -34,7 +34,7 @@ include:
         - mise.toml
         - go.work
 
-# Use the glci built by Pangaea !2428's passing pipeline. The parent starts in
+# Use the glci built by Pangaea !2433's passing build. The parent starts in
 # the module; generated child jobs start at repository root, so retain both paths.
 custom_glci:
   image: !reference [.mise, image]
@@ -43,7 +43,7 @@ custom_glci:
   script:
     - |
       curl --fail --silent --show-error --location \
-        "${CI_API_V4_URL}/projects/74118899/jobs/18011826946/artifacts/custom_glci?job_token=${CI_JOB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/74118899/jobs/18013965264/artifacts/custom_glci?job_token=${CI_JOB_TOKEN}" \
         --output "${CI_PROJECT_DIR}/custom_glci"
       chmod +x "${CI_PROJECT_DIR}/custom_glci"
       cp "${CI_PROJECT_DIR}/custom_glci" "${CI_PROJECT_DIR}/${MODULE_DIR}custom_glci"
@@ -62,10 +62,10 @@ go_build:
         GOARCH: ["amd64"]
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
-# Temporary branch validation until tools !529 and Pangaea !2428 are rolled out.
+# Temporary branch validation until the shared tools and Pangaea changes are rolled out.
 pre_publish_artifacts:
   variables:
-    GLCI_CMD_MATRIX_TOOLS_REF: "shiqi-ci-module-job-prefix"
+    GLCI_CMD_MATRIX_TOOLS_REF: "shiqi-helm-job-prefix"
     GLCI_CMD_MATRIX_CUSTOM_GLCI: "true"
   rules: !reference [.cluster_autoscaler_artifact_rules, rules]
 
