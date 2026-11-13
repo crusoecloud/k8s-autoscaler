@@ -9,7 +9,7 @@ include:
 variables:
   PLATFORMS: "linux/amd64"
 
-# Shared setup starts at the repository root, which has no go.mod or mise config.
+# Shared setup starts at the repository root, which has no go.mod.
 # Install and activate tools in the module and use its lock/config cache key.
 .mise:
   cache:
