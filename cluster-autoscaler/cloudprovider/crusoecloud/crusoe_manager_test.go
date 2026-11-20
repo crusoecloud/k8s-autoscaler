@@ -38,6 +38,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 )
 
 func TestManager_ListNodePools(t *testing.T) {
@@ -136,6 +137,62 @@ func TestManager_BuildTemplateNodeFromNodePool_AMDGpu(t *testing.T) {
 	assert.Equal(t, int64(2000*1024*1024*1024), mem.Value())
 	assert.Equal(t, int64(8), gpuAmd.Value())
 	assert.Equal(t, int64(8), vnicAmd.Value())
+}
+
+func testManagerWithC1a() *crusoeManager {
+	mgr, _ := testManagerWithMocks()
+	mgr.instanceTypeRefreshLastRefresh = time.Now().Add(10 * 365 * 24 * time.Hour)
+	mgr.instanceTypeDetailMap = map[string]*crusoeInstanceTypeDetail{
+		"c1a.8x": {ProductName: "c1a.8x", CpuCores: 8, CpuType: "vCPU", MemoryGb: 32},
+	}
+
+	return mgr
+}
+
+func TestManager_BuildTemplateNodeFromNodePool_EphemeralStorage(t *testing.T) {
+	ctx := context.Background()
+	mgr := testManagerWithC1a()
+
+	for name, tc := range map[string]struct {
+		storage string
+		want    string
+	}{
+		"reported":     {storage: "3840G", want: "3840G"},
+		"not reported": {storage: "", want: defaultEphemeralStorage},
+		"invalid":      {storage: "lots", want: defaultEphemeralStorage},
+	} {
+		t.Run(name, func(t *testing.T) {
+			node, err := mgr.buildTemplateNodeFromNodePool(ctx, &crusoeapi.KubernetesNodePool{
+				Type_:                "c1a.8x",
+				NodeEphemeralStorage: tc.storage,
+			})
+			assert.NoError(t, err)
+
+			capacity := node.Status.Capacity[apiv1.ResourceEphemeralStorage]
+			allocatable := node.Status.Allocatable[apiv1.ResourceEphemeralStorage]
+			assert.Equal(t, tc.want, capacity.String())
+			assert.Equal(t, tc.want, allocatable.String())
+		})
+	}
+}
+
+func TestManager_BuildTemplateNodeFromNodePool_Taints(t *testing.T) {
+	ctx := context.Background()
+	mgr := testManagerWithC1a()
+
+	node, err := mgr.buildTemplateNodeFromNodePool(ctx, &crusoeapi.KubernetesNodePool{
+		Type_: "c1a.8x",
+		NodeTaints: []crusoeapi.KubernetesNodeTaint{
+			{Key: "dedicated", Value: "batch", Effect: "NoSchedule"},
+			{Key: "spot", Effect: "PreferNoSchedule"},
+		},
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, []apiv1.Taint{
+		{Key: "dedicated", Value: "batch", Effect: apiv1.TaintEffectNoSchedule},
+		{Key: "spot", Effect: apiv1.TaintEffectPreferNoSchedule},
+	}, node.Spec.Taints)
 }
 
 func TestManager_BuildTemplateNodeFromNodePool_NvidiaGpu(t *testing.T) {
@@ -248,10 +305,10 @@ func TestManager_UpdateNodePool_PreservesExistingFields(t *testing.T) {
 
 	expectedReq := crusoeapi.KubernetesNodePoolPatchRequest{
 		Action:                        "UPDATE",
-		Count:                         5,
-		EphemeralStorageForContainerd: true,
-		ReservationId:                 "reservation-123",
-		SshPublicKey:                  testSSHPublicKey,
+		Count:                         ptr.To[int64](5),
+		EphemeralStorageForContainerd: ptr.To(true),
+		ReservationId:                 ptr.To("reservation-123"),
+		SshPublicKey:                  ptr.To(testSSHPublicKey),
 		// NodeTaints stays nil: null leaves the pool's taints unchanged.
 		NodeLabels: map[string]string{
 			"team": "platform",
@@ -291,8 +348,10 @@ func TestManager_UpdateNodePool_NoLabelsOrReservation(t *testing.T) {
 	}
 
 	expectedReq := crusoeapi.KubernetesNodePoolPatchRequest{
-		Action: "UPDATE",
-		Count:  4,
+		Action:                        "UPDATE",
+		Count:                         ptr.To[int64](4),
+		EphemeralStorageForContainerd: ptr.To(false),
+		SshPublicKey:                  ptr.To(""),
 	}
 
 	mocks.nodePoolsApi.
@@ -858,7 +917,6 @@ func TestManager_UpdateNodePoolRequestBody(t *testing.T) {
 		"count": 5,
 		"ephemeral_storage_for_containerd": true,
 		"node_labels": {"team": "ml", "env": "prod"},
-		"node_pool_version": "",
 		"node_taints": null,
 		"reservation_id": "a-reservation-id",
 		"ssh_public_key": "`+testSSHPublicKey+`"
